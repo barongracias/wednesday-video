@@ -33,11 +33,18 @@ Open `index.html` in your browser or serve the folder locally (e.g., `python -m 
 ### Backend circle sync (optional)
 - After logging in, click **Sync circle**. The client will fetch your circles; if none, it creates a demo circle and seeds members from your local list.
 - Assignments/host are pulled from the backend and reflected in the UI; the circle ID is stored locally and used for signed uploads.
-- Server storage is in-memory in this mock; restart will drop data.
+- Server storage now also persists to `server/data/db.json` locally so restarts keep mock data (still not production-grade).
 
 ### Using uploads before real storage
 - You can upload a recorded or local video to a *mock* signed URL to exercise the flow. Real uploads will work once valid GCS signed URLs are returned by the API.
 - Pick a clip (record or “Use existing video”), set API base, click **Request signed upload**. If the URL is mock, no network upload occurs.
+- Upload UX now shows progress and keeps a local attempts log; you can retry after failures. Clips are capped at ~150MB and 120s; longer/larger uploads are blocked client-side.
+- You can set target bitrate and max duration before recording; choose lower bitrate for smaller files.
+- Uploads are queued; pause/resume/cancel controls manage the queue. Queue entries show in a queue list; history log shows outcomes.
+
+### Backup/restore
+- Use **Download backup** to save local state (friends, history, mock uploads, settings). Import it on the same or another device via **Import backup**.
+- Tokens/API base are not included for safety; log in again after import.
 
 ### GCS CORS quick config
 If you enable real uploads, set a permissive CORS rule on your bucket (tighten later):
@@ -59,6 +66,23 @@ Apply with `gsutil cors set cors.json gs://$GCS_BUCKET`.
 - Tap **Save to mock cloud** to log a fake upload (metadata only) so you can test UI around uploads without sending anything anywhere.
 - Tap **Simulate Wednesday** to advance the host rotation and confirm countdown/hand-off logic.
 - Clear `localStorage` or hit **Reset** to start over.
+
+## PWA / offline basics
+- Added `manifest.json`, SVG icon, and a service worker that caches core assets for offline viewing.
+- Installable as a PWA from mobile browsers that support it; capture/upload still requires network.
+
+## Reminders
+- Browser notifications: enable in the Reminders card, then send a local reminder to the current host. Works only while the tab/site is open on that device.
+- Calendar: download an `.ics` reminder for the next handoff; add it to your calendar client for a 15-minute prior alert.
+
+## Safety/consent
+- This is a local-first demo; remind participants to consent before sharing. Add moderation/reporting before wider use.
+- A local “Report content” button lets you log issues; it does not notify anyone yet.
+
+## Tests (Playwright scaffold)
+- `cd tests && npm install`
+- Serve the app (e.g., `python -m http.server 8000`), set `BASE_URL=http://localhost:8000`, then run `npm test`.
+- Smoke test covers loading the home page and demo controls.
 
 ## Known limitations / improvements
 - **Storage/sharing:** Browser storage is local-only; videos are not persisted across devices. Next step: S3/GCS-backed storage with signed upload URLs and short-lived download tokens.

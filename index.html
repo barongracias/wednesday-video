@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Wednesday's – rotating weekly video drops</title>
+  <meta name="theme-color" content="#060914">
+  <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -59,6 +61,7 @@
         </div>
         <div class="pill neutral" id="recording-status">Idle</div>
       </div>
+      <p class="muted tiny" id="recording-timer">00:00 / 02:00 max</p>
       <div class="record-grid">
         <div class="video-shell">
           <video id="preview" playsinline></video>
@@ -69,6 +72,13 @@
             <button id="start-recording">Start recording</button>
             <button id="stop-recording" class="danger" disabled>Stop</button>
           </div>
+          <div class="inline-form">
+            <label for="bitrate" class="muted tiny">Bitrate (kbps)</label>
+            <input id="bitrate" type="number" min="200" max="4000" step="100" value="1200" />
+            <label for="max-duration" class="muted tiny">Max seconds</label>
+            <input id="max-duration" type="number" min="30" max="300" step="10" value="120" />
+          </div>
+          <p class="muted tiny" id="est-size">Est. size: —</p>
           <div class="button-row">
             <input id="file-input" type="file" accept="video/*" />
             <button id="use-upload" class="ghost">Use existing video</button>
@@ -108,11 +118,37 @@
       <div class="button-row">
         <button id="ping-api" class="ghost">Ping backend</button>
         <button id="sign-upload">Request signed upload</button>
+        <button id="retry-upload" class="ghost" disabled>Retry upload</button>
         <button id="sync-circle" class="ghost">Sync circle</button>
       </div>
       <p class="muted tiny" id="circle-label">Circle: none</p>
+      <div class="progress">
+        <div id="upload-progress" class="progress-bar"></div>
+      </div>
+      <div class="button-row">
+        <button id="pause-queue" class="ghost" disabled>Pause queue</button>
+        <button id="resume-queue" class="ghost" disabled>Resume queue</button>
+        <button id="cancel-queue" class="ghost danger" disabled>Cancel queue</button>
+      </div>
+      <ul id="upload-queue-list" class="history-list"></ul>
+      <ul id="upload-attempts" class="history-list"></ul>
       <div id="upload-status" class="alert hidden"></div>
       <p class="muted tiny">Needs an API token/user header in production. For now this uses a mock user ID and does not persist to a real cloud unless valid signed URLs are returned.</p>
+    </section>
+
+    <section class="card" id="backup-card">
+      <div class="card-head">
+        <div>
+          <p class="label">Backup &amp; import</p>
+          <h3>Save/restore local state</h3>
+        </div>
+      </div>
+      <div class="button-row">
+        <button id="export-state" class="ghost">Download backup</button>
+        <input id="import-file" type="file" accept="application/json" />
+        <button id="import-state">Import backup</button>
+      </div>
+      <p class="muted tiny">Backups include friends, history, mock uploads, and settings. Stays on this device unless you share the file.</p>
     </section>
 
     <section class="card" id="auth-card">
@@ -135,7 +171,7 @@
         <button id="auth-logout" class="ghost">Log out</button>
       </div>
       <div id="auth-message" class="alert hidden"></div>
-      <p class="muted tiny">Today this returns the token directly for testing. In production it would arrive via email, and only verified users could request signed uploads or modify circles.</p>
+      <p class="muted tiny">Today this returns the token directly for testing. In production it would arrive via email, and only verified users could request signed uploads or modify circles. Get consent before sharing recordings.</p>
     </section>
 
     <section class="card" id="demo-card">
@@ -158,6 +194,21 @@
       <p class="muted tiny">Use these controls to practice flows before inviting friends. Mock uploads live only on this device.</p>
     </section>
 
+    <section class="card soft" id="reminders-card">
+      <div class="card-head">
+        <div>
+          <p class="label">Reminders</p>
+          <h3>Nudge the weekly host</h3>
+        </div>
+      </div>
+      <div class="button-row">
+        <button id="notify-permission" class="ghost">Enable notifications</button>
+        <button id="notify-host">Remind current host now</button>
+        <button id="download-ics" class="ghost">Add calendar reminder</button>
+      </div>
+      <p class="muted tiny">Browser notifications are local to this device/tab. Calendar file creates a 15-minute reminder for the next handoff.</p>
+    </section>
+
     <section class="card soft">
       <div class="card-head">
         <div>
@@ -171,6 +222,20 @@
         <li><strong>Sharing.</strong> Private links with expiring tokens; download controls.</li>
         <li><strong>Safety.</strong> Consent copy, flag/report, and retention rules.</li>
       </ul>
+    </section>
+
+    <section class="card soft" id="safety-card">
+      <div class="card-head">
+        <div>
+          <p class="label">Safety</p>
+          <h3>Consent &amp; reporting</h3>
+        </div>
+      </div>
+      <p class="muted tiny">This MVP does not upload to a shared backend. Use the report button to log concerns locally; add consent before recording.</p>
+      <div class="button-row">
+        <button id="flag-content" class="danger ghost">Report content</button>
+      </div>
+      <ul id="flag-list" class="history-list"></ul>
     </section>
   </div>
   <script src="app.js"></script>

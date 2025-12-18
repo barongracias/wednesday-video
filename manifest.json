@@ -1,0 +1,17 @@
+{
+  "name": "Wednesday's",
+  "short_name": "Wednesday's",
+  "description": "Weekly rotating video drops with your circle.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#060914",
+  "theme_color": "#060914",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

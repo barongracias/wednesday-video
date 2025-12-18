@@ -33,10 +33,29 @@
     saveApiBase: document.getElementById("save-api-base"),
     pingApi: document.getElementById("ping-api"),
     signUpload: document.getElementById("sign-upload"),
+    retryUpload: document.getElementById("retry-upload"),
     backendStatus: document.getElementById("backend-status"),
     uploadStatus: document.getElementById("upload-status"),
     syncCircle: document.getElementById("sync-circle"),
     circleLabel: document.getElementById("circle-label"),
+    uploadProgress: document.getElementById("upload-progress"),
+    uploadAttempts: document.getElementById("upload-attempts"),
+    uploadQueueList: document.getElementById("upload-queue-list"),
+    recordingTimer: document.getElementById("recording-timer"),
+    bitrateInput: document.getElementById("bitrate"),
+    maxDurationInput: document.getElementById("max-duration"),
+    estSize: document.getElementById("est-size"),
+    exportState: document.getElementById("export-state"),
+    importFile: document.getElementById("import-file"),
+    importState: document.getElementById("import-state"),
+    notifyPermission: document.getElementById("notify-permission"),
+    notifyHost: document.getElementById("notify-host"),
+    downloadIcs: document.getElementById("download-ics"),
+    flagContent: document.getElementById("flag-content"),
+    flagList: document.getElementById("flag-list"),
+    pauseQueue: document.getElementById("pause-queue"),
+    resumeQueue: document.getElementById("resume-queue"),
+    cancelQueue: document.getElementById("cancel-queue"),
     authEmail: document.getElementById("auth-email"),
     authToken: document.getElementById("auth-token"),
     authRequest: document.getElementById("auth-request"),
@@ -234,6 +253,77 @@
     el.mockUpload.disabled = !lastRecordingBlob;
   }
 
+  function renderUploadAttempts() {
+    if (!el.uploadAttempts) return;
+    el.uploadAttempts.innerHTML = "";
+    if (!uploadAttempts.length) {
+      const li = document.createElement("li");
+      li.className = "muted tiny";
+      li.textContent = "No uploads yet. Request a signed upload to see progress here.";
+      el.uploadAttempts.appendChild(li);
+      return;
+    }
+    uploadAttempts.slice(0, 8).forEach((item) => {
+      const li = document.createElement("li");
+      li.innerHTML = `<strong>${item.status}</strong> — ${formatBytes(
+        item.size
+      )} <span class="muted tiny">(${formatDate(item.when)}${item.mock ? ", mock" : ""}${
+        item.queue ? ", queued" : ""
+      })</span>`;
+      el.uploadAttempts.appendChild(li);
+    });
+  }
+
+  function renderFlags() {
+    if (!el.flagList) return;
+    el.flagList.innerHTML = "";
+    if (!flags.length) {
+      const li = document.createElement("li");
+      li.className = "muted tiny";
+      li.textContent = "No reports yet.";
+      el.flagList.appendChild(li);
+      return;
+    }
+    flags.slice(0, 10).forEach((f) => {
+      const li = document.createElement("li");
+      li.innerHTML = `<strong>${f.reason}</strong> — ${formatDate(
+        f.when
+      )} <span class="muted tiny">${f.note || ""}</span>`;
+      el.flagList.appendChild(li);
+    });
+  }
+
+  function renderQueue() {
+    if (!el.uploadQueueList) return;
+    el.uploadQueueList.innerHTML = "";
+    if (!uploadQueue.length) {
+      const li = document.createElement("li");
+      li.className = "muted tiny";
+      li.textContent = "Queue is empty.";
+      el.uploadQueueList.appendChild(li);
+      return;
+    }
+    uploadQueue.forEach((item) => {
+      const li = document.createElement("li");
+      const pct =
+        item.status === "uploading" && item.progress
+          ? ` — ${Math.round(item.progress)}%`
+          : "";
+      li.innerHTML = `<strong>${item.status}</strong> — ${formatBytes(
+        item.size
+      )} <span class="muted tiny">${item.source}${pct}</span>`;
+      el.uploadQueueList.appendChild(li);
+    });
+    // prune completed beyond recent 5
+    const maxKeep = 5;
+    const completed = uploadQueue.filter((u) => u.status === "done" || u.status === "failed");
+    if (completed.length > maxKeep) {
+      const keep = uploadQueue.filter((u) => u.status !== "done" && u.status !== "failed");
+      keep.push(...completed.slice(0, maxKeep));
+      uploadQueue = keep;
+    }
+  }
+
   function getSession() {
     const userId = localStorage.getItem(userIdKey) || "";
     const token = localStorage.getItem(authTokenKey) || "";
@@ -264,6 +354,11 @@
       localStorage.setItem(authTokenKey, urlToken);
       setAuthMessage("Token detected from URL. Click Verify to log in.");
     }
+    const urlBase = new URLSearchParams(window.location.search).get("api");
+    if (urlBase && el.apiBase) {
+      el.apiBase.value = urlBase;
+      localStorage.setItem(apiConfigKey, urlBase);
+    }
   }
 
   function renderAll() {
@@ -272,6 +367,9 @@
     renderFriends();
     renderHistory();
     renderMockUploads();
+    renderQueue();
+    renderUploadAttempts();
+    renderFlags();
     persist();
   }
 
@@ -424,7 +522,7 @@
     }
   }
 
-  async function requestSignedUpload() {
+  async function requestSignedUpload(fromQueueItem) {
     const base = el.apiBase.value.trim();
     if (!base) {
       setUploadStatus("Enter an API base URL first.", "error");
@@ -432,6 +530,11 @@
     }
     if (!lastRecordingBlob) {
       setUploadStatus("Record or load a file first.", "error");
+      return;
+    }
+    const valid = await validateBlob(lastRecordingBlob);
+    if (!valid) {
+      el.retryUpload.disabled = false;
       return;
     }
     const filename =
@@ -448,6 +551,8 @@
       setUploadStatus("Log in first (mock magic link).", "error");
       return;
     }
+    el.retryUpload.disabled = true;
+    setProgress(0);
     try {
       setBackendStatus("Signing...");
       setUploadStatus("Requesting signed URL…");
@@ -466,27 +571,71 @@
       const data = await res.json();
       setBackendStatus("Signed");
       setUploadStatus(
-        `Signed upload ready (mock). Upload URL host: ${new URL(data.uploadUrl).host}`
+        `Signed upload ready ${data.mock ? "(mock)" : ""}. Upload URL host: ${
+          new URL(data.uploadUrl).host
+        }`
       );
-      if (data.uploadUrl.includes("mock")) {
+      lastUploadInfo = { data, payload };
+      if (data.mock) {
         setUploadStatus("Using mock signed URL; no real upload performed.");
+        setProgress(100);
+        uploadAttempts.unshift({
+          status: "mock signed",
+          size: lastRecordingBlob.size,
+          when: Date.now(),
+          mock: true,
+          queue: Boolean(fromQueueItem),
+        });
+        renderUploadAttempts();
+        renderQueue();
+        el.retryUpload.disabled = false;
         return;
       }
-      try {
-        await fetch(data.uploadUrl, {
-          method: "PUT",
-          headers: { "Content-Type": payload.contentType },
-          body: lastRecordingBlob,
+      if (data.uploadUrl.includes("mock")) {
+        setUploadStatus("Using mock signed URL; no real upload performed.");
+        setProgress(100);
+        uploadAttempts.unshift({
+          status: "mock signed",
+          size: lastRecordingBlob.size,
+          when: Date.now(),
+          mock: true,
+          queue: Boolean(fromQueueItem),
         });
-        setUploadStatus("Uploaded to signed URL (verify in bucket).");
-      } catch (errUpload) {
-        console.warn("Upload failed", errUpload);
-        setUploadStatus("Signed, but upload failed (CORS/credentials). Check console.", "error");
+        renderUploadAttempts();
+        renderQueue();
+        el.retryUpload.disabled = false;
+        return;
       }
+      await uploadWithProgress(data.uploadUrl, lastRecordingBlob, payload.contentType, fromQueueItem);
+      setUploadStatus("Uploaded to signed URL (verify in bucket).");
+      setProgress(100);
+      uploadAttempts.unshift({
+        status: "uploaded",
+        size: lastRecordingBlob.size,
+        when: Date.now(),
+        mock: false,
+        queue: Boolean(fromQueueItem),
+      });
+      if (fromQueueItem) fromQueueItem.status = "done";
+      renderUploadAttempts();
+      renderQueue();
+      el.retryUpload.disabled = false;
     } catch (err) {
       console.warn(err);
       setBackendStatus("Offline");
       setUploadStatus(err.message || "Failed to sign upload", "error");
+      el.retryUpload.disabled = false;
+      uploadAttempts.unshift({
+        status: "failed",
+        size: lastRecordingBlob?.size || 0,
+        when: Date.now(),
+        mock: false,
+        queue: Boolean(fromQueueItem),
+      });
+      renderUploadAttempts();
+      renderQueue();
+      setProgress(0);
+      if (fromQueueItem) fromQueueItem.status = "failed";
     }
   }
 
@@ -555,6 +704,275 @@
     setCircleLabel("none");
   }
 
+  function getVideoMeta(blob) {
+    return new Promise((resolve) => {
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.onloadedmetadata = () => {
+        const duration = video.duration || 0;
+        URL.revokeObjectURL(video.src);
+        resolve({ duration });
+      };
+      video.onerror = () => resolve({ duration: 0 });
+      video.src = URL.createObjectURL(blob);
+    });
+  }
+
+  async function validateBlob(blob) {
+    if (!blob) {
+      setUploadStatus("No video to upload. Record or pick a file.", "error");
+      return false;
+    }
+    if (blob.size > MAX_SIZE_BYTES) {
+      setUploadStatus(
+        `File too large (${formatBytes(blob.size)}). Max allowed is ${formatBytes(MAX_SIZE_BYTES)}.`,
+        "error"
+      );
+      return false;
+    }
+    const durationCap = clamp(
+      Number(el.maxDurationInput?.value) || MAX_DURATION_SEC,
+      30,
+      300
+    );
+    const { duration } = await getVideoMeta(blob);
+    if (duration && duration > durationCap) {
+      setUploadStatus(
+        `Clip too long (${Math.round(duration)}s). Max allowed is ${durationCap}s.`,
+        "error"
+      );
+      return false;
+    }
+    return true;
+  }
+
+  function enqueueUpload({ blob, source }) {
+    uploadQueue.push({
+      id: `q_${Date.now()}`,
+      blob,
+      source,
+      status: "pending",
+      size: blob.size,
+      createdAt: Date.now(),
+      progress: 0,
+    });
+    uploadAttempts.unshift({
+      status: `queued (${source})`,
+      size: blob.size,
+      when: Date.now(),
+      mock: source === "mock",
+      queue: true,
+    });
+    renderUploadAttempts();
+    processQueue();
+  }
+
+  async function processQueue() {
+    if (queueState === "paused") return;
+    if (queueState === "running") return;
+    const next = uploadQueue.find((u) => u.status === "pending");
+    if (!next) {
+      queueState = "idle";
+      el.pauseQueue.disabled = true;
+      el.cancelQueue.disabled = true;
+      el.resumeQueue.disabled = true;
+      return;
+    }
+    queueState = "running";
+    next.status = "uploading";
+    currentQueueItem = next;
+    el.pauseQueue.disabled = false;
+    el.cancelQueue.disabled = false;
+    el.resumeQueue.disabled = true;
+    lastRecordingBlob = next.blob;
+    await requestSignedUpload(next);
+    queueState = "idle";
+    currentQueueItem = null;
+    processQueue();
+  }
+
+  function pauseQueue() {
+    queueState = "paused";
+    el.pauseQueue.disabled = true;
+    el.resumeQueue.disabled = false;
+    el.cancelQueue.disabled = false;
+  }
+
+  function resumeQueue() {
+    queueState = "idle";
+    el.pauseQueue.disabled = false;
+    el.resumeQueue.disabled = true;
+    processQueue();
+  }
+
+  function cancelQueue() {
+    uploadQueue = [];
+    currentQueueItem = null;
+    queueState = "idle";
+    el.pauseQueue.disabled = true;
+    el.resumeQueue.disabled = true;
+    el.cancelQueue.disabled = true;
+    setUploadStatus("Queue cleared.");
+    renderQueue();
+  }
+
+  async function uploadWithProgress(url, blob, contentType, queueItem) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", url);
+      xhr.setRequestHeader("Content-Type", contentType || "application/octet-stream");
+      xhr.upload.onprogress = (evt) => {
+        if (evt.lengthComputable) {
+          const percent = (evt.loaded / evt.total) * 100;
+          setProgress(percent);
+          if (queueItem) {
+            queueItem.progress = percent;
+            renderQueue();
+          }
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) resolve();
+        else reject(new Error(`Upload failed with status ${xhr.status}`));
+      };
+      xhr.onerror = () => reject(new Error("Network error during upload"));
+      xhr.send(blob);
+    });
+  }
+
+  // Backup/import
+  function exportState() {
+    const payload = {
+      state,
+      circleId: getCircleId(),
+      savedAt: Date.now(),
+      version: "v1",
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `wednesdays-backup-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setUploadStatus("Backup downloaded locally.");
+  }
+
+  function importState() {
+    const file = el.importFile?.files?.[0];
+    if (!file) {
+      setUploadStatus("Pick a backup JSON file to import.", "error");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        if (!parsed.state) throw new Error("No state found in backup");
+        state = { ...state, ...parsed.state };
+        if (parsed.circleId) localStorage.setItem(circleIdKey, parsed.circleId);
+        renderAll();
+        setUploadStatus("Backup imported. Review roster and history.");
+      } catch (err) {
+        console.warn(err);
+        setUploadStatus("Failed to import backup. Check file format.", "error");
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  // Notifications and reminders
+  async function requestNotificationPermission(opts = {}) {
+    if (typeof Notification === "undefined") return;
+    if (Notification.permission === "default") {
+      try {
+        const res = await Notification.requestPermission();
+        lastNotificationPermission = res;
+        if (!opts.silent) setUploadStatus(`Notifications: ${res}`);
+      } catch (err) {
+        console.warn(err);
+        if (!opts.silent) setUploadStatus("Notification permission failed", "error");
+      }
+    } else {
+      lastNotificationPermission = Notification.permission;
+      if (!opts.silent) setUploadStatus(`Notifications: ${Notification.permission}`);
+    }
+  }
+
+  function notifyHost(trigger = "manual") {
+    if (typeof Notification === "undefined") {
+      setUploadStatus("Notifications not supported in this browser.", "error");
+      return;
+    }
+    if (Notification.permission !== "granted") {
+      setUploadStatus("Enable notifications first.", "error");
+      return;
+    }
+    const host = state.friends[state.hostIndex] || "Someone";
+    const body = `It's your turn. Record a 60–90s recap before ${formatDate(
+      state.nextSwitch || nextWednesday(Date.now())
+    )}.`;
+    try {
+      new Notification(`Wednesday's: ${host}`, { body });
+      uploadAttempts.unshift({
+        status: `notified ${host}`,
+        size: 0,
+        when: Date.now(),
+        mock: true,
+      });
+      renderUploadAttempts();
+    } catch (err) {
+      console.warn(err);
+      setUploadStatus("Could not show notification.", "error");
+    }
+  }
+
+  function downloadIcsFile() {
+    const host = state.friends[state.hostIndex] || "Host";
+    const start = state.nextSwitch || nextWednesday(Date.now());
+    const end = start + 15 * 60 * 1000;
+    const uid = `wednesdays-${start}@local`;
+    const dt = (ts) => new Date(ts).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Wednesdays//EN",
+      "BEGIN:VEVENT",
+      `UID:${uid}`,
+      `DTSTAMP:${dt(Date.now())}`,
+      `DTSTART:${dt(start)}`,
+      `DTEND:${dt(end)}`,
+      `SUMMARY:Wednesday's host: ${host}`,
+      `DESCRIPTION:It's ${host}'s turn to record a recap.`,
+      "BEGIN:VALARM",
+      "TRIGGER:-PT15M",
+      "ACTION:DISPLAY",
+      `DESCRIPTION:Reminder: ${host} is up.`,
+      "END:VALARM",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+    const blob = new Blob([ics], { type: "text/calendar" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `wednesdays-${host}.ics`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setUploadStatus("Calendar reminder downloaded.");
+  }
+
+  function flagContent() {
+    const reason = prompt("Describe the issue (e.g., inappropriate, consent, other):");
+    if (!reason) return;
+    const note = prompt("Any extra context? (optional)") || "";
+    flags.unshift({ reason, note, when: Date.now() });
+    renderFlags();
+    setUploadStatus("Flag saved locally. Add server moderation before wider use.");
+  }
+
   async function syncCircle() {
     const base = el.apiBase.value.trim();
     const session = getSession();
@@ -583,28 +1001,38 @@
           body: JSON.stringify({ name: "Wednesday Demo" }),
         });
         circle = (await createRes.json()).circle;
-        // add members from local state
-        for (const name of state.friends) {
-          await fetch(api(`/circles/${circle.id}/members`), {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-user-id": session.userId,
-            },
-            body: JSON.stringify({ email: `${name.toLowerCase()}@example.com`, name }),
-          });
-        }
       }
+      // add missing members from local state
+      const existingNames = new Set((circle.members || []).map((m) => m.name.toLowerCase()));
+      for (const name of state.friends) {
+        if (existingNames.has(name.toLowerCase())) continue;
+        await fetch(api(`/circles/${circle.id}/members`), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-user-id": session.userId,
+          },
+          body: JSON.stringify({ email: `${name.toLowerCase()}@example.com`, name }),
+        });
+      }
+      // refresh circle members
+      const refreshed = await fetch(api("/circles"), {
+        headers: { "x-user-id": session.userId },
+      }).then((r) => r.json());
+      circle = refreshed.circles?.find((c) => c.id === circle.id) || circle;
       // get assignments
       const assignRes = await fetch(api(`/circles/${circle.id}/assignments`), {
         headers: { "x-user-id": session.userId },
       });
       const assigns = await assignRes.json();
       if (assignRes.ok) {
-        state.friends = circle.members?.map((m) => m.name) || state.friends;
+        const memberNames = circle.members?.map((m) => m.name) || state.friends;
+        if (memberNames.length) state.friends = memberNames;
         if (assigns.host?.name) {
           const idx = state.friends.findIndex((n) => n === assigns.host.name);
           state.hostIndex = idx >= 0 ? idx : 0;
+        } else {
+          state.hostIndex = 0;
         }
         state.nextSwitch = assigns.nextSwitch || state.nextSwitch;
         state.history =
@@ -637,14 +1065,30 @@
   let chunks = [];
   let lastUrl = null;
   let lastRecordingBlob = null;
+  let lastUploadInfo = null;
+  let recordDeadline = null;
+  let recordTicker = null;
+  let uploadAttempts = [];
+  let lastNotificationPermission = typeof Notification !== "undefined" ? Notification.permission : "denied";
+  let flags = [];
+  let uploadQueue = [];
+  let queueState = "idle"; // idle, running, paused
+  let currentQueueItem = null;
   const apiConfigKey = "wednesdays-api-base";
   const userIdKey = "wednesdays-user-id";
   const authTokenKey = "wednesdays-auth-token";
   const authEmailKey = "wednesdays-auth-email";
   const circleIdKey = "wednesdays-circle-id";
+  const MAX_SIZE_BYTES = 150 * 1024 * 1024; // 150MB cap
+  const MAX_DURATION_SEC = 120; // 2 minutes
+  const MAX_BITRATE_KBPS = 4000;
 
   function getApiBase() {
     return (localStorage.getItem(apiConfigKey) || "").trim();
+  }
+
+  function clamp(n, min, max) {
+    return Math.min(Math.max(n, min), max);
   }
 
   function showSupportMessage(text) {
@@ -684,15 +1128,56 @@
     if (el.circleLabel) el.circleLabel.textContent = `Circle: ${text}`;
   }
 
+  function setProgress(percent) {
+    if (!el.uploadProgress) return;
+    el.uploadProgress.style.width = `${Math.min(Math.max(percent, 0), 100)}%`;
+  }
+
+  function updateEstimate() {
+    const bitrate = clamp(Number(el.bitrateInput?.value) || 1200, 200, MAX_BITRATE_KBPS);
+    const seconds = clamp(Number(el.maxDurationInput?.value) || MAX_DURATION_SEC, 30, 300);
+    const bytes = (bitrate * 1000 * seconds) / 8 + 128000 * seconds / 8; // video + audio rough
+    if (el.estSize) el.estSize.textContent = `Est. size: ${formatBytes(bytes)}`;
+  }
+
+  function setRecordingTimerText(text) {
+    if (el.recordingTimer) el.recordingTimer.textContent = text;
+  }
+
+  function updateRecordTimer(elapsedMs = 0) {
+    if (!el.recordingTimer) return;
+    const totalMs = clamp(
+      Number(el.maxDurationInput?.value) || MAX_DURATION_SEC,
+      30,
+      300
+    ) * 1000;
+    const leftMs = Math.max(totalMs - elapsedMs, 0);
+    const fmt = (ms) => {
+      const s = Math.floor(ms / 1000);
+      const m = Math.floor(s / 60);
+      const ss = `${s % 60}`.padStart(2, "0");
+      return `${m}:${ss}`;
+    };
+    el.recordingTimer.textContent = `${fmt(elapsedMs)} / ${fmt(totalMs)} max`;
+  }
+
   function updateRecordingUI(status = "Idle") {
     el.recordingStatus.textContent = status;
     el.recordingBanner.classList.toggle("hidden", status !== "Recording");
     el.stopRecording.disabled = status !== "Recording";
     el.startRecording.disabled = status === "Recording";
+    if (status !== "Recording") {
+      recordDeadline = null;
+      if (recordTicker) clearInterval(recordTicker);
+      updateRecordTimer(0);
+    }
+    setRecordingTimerText(el.recordingTimer?.textContent || "00:00 / 02:00 max");
   }
 
   function useRecordedBlob(blob, source = "capture") {
     lastRecordingBlob = blob;
+    lastUploadInfo = null;
+    enqueueUpload({ blob, source });
     if (lastUrl) URL.revokeObjectURL(lastUrl);
     const url = URL.createObjectURL(blob);
     lastUrl = url;
@@ -728,6 +1213,7 @@
       }
     };
     el.mockUpload.disabled = false;
+    setProgress(0);
     updateRecordingUI("Idle");
     showSupportMessage(
       source === "mock"
@@ -755,10 +1241,17 @@
       el.preview.muted = true;
       await el.preview.play();
       chunks = [];
+      const maxDuration = clamp(Number(el.maxDurationInput?.value) || MAX_DURATION_SEC, 30, 300);
+      const targetDurationMs = maxDuration * 1000;
+      const bitrate = clamp(Number(el.bitrateInput?.value) || 1200, 200, MAX_BITRATE_KBPS);
       const mimeType =
         MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus") &&
         "video/webm;codecs=vp9,opus";
-      recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recorder = new MediaRecorder(stream, {
+        mimeType: mimeType || undefined,
+        videoBitsPerSecond: bitrate * 1000,
+        audioBitsPerSecond: 128000,
+      });
       recorder.ondataavailable = (evt) => {
         if (evt.data?.size) chunks.push(evt.data);
       };
@@ -767,6 +1260,16 @@
       updateRecordingUI("Recording");
       setDemoStatus("Recording live");
       showSupportMessage("Recording; keep the tab open. Video stays on your device.");
+      recordDeadline = Date.now() + targetDurationMs;
+      const tick = () => {
+        if (!recordDeadline) return;
+        const elapsed = targetDurationMs - Math.max(recordDeadline - Date.now(), 0);
+        updateRecordTimer(elapsed);
+        if (Date.now() >= recordDeadline) {
+          stopRecording();
+        }
+      };
+      recordTicker = setInterval(tick, 500);
     } catch (err) {
       showSupportMessage("Camera/mic access failed. Check permissions and try again.");
       console.error(err);
@@ -791,8 +1294,11 @@
       showSupportMessage("Pick a video file first.");
       return;
     }
-    useRecordedBlob(file, "upload");
-    showSupportMessage("Loaded local file. You can upload/share/download now.");
+    validateBlob(file).then((ok) => {
+      if (!ok) return;
+      useRecordedBlob(file, "upload");
+      showSupportMessage("Loaded local file. You can upload/share/download now.");
+    });
   }
 
   function handleRecordingStop() {
@@ -847,13 +1353,34 @@
     setUploadStatus(`Saved API base: ${val || "not set"}`);
   });
   el.pingApi.addEventListener("click", pingBackend);
-  el.signUpload.addEventListener("click", requestSignedUpload);
+  el.signUpload.addEventListener("click", () => {
+    const pending = uploadQueue.find((u) => u.status === "pending");
+    if (pending) {
+      processQueue();
+    } else {
+      requestSignedUpload();
+    }
+  });
+  el.retryUpload?.addEventListener("click", () => processQueue());
   el.syncCircle?.addEventListener("click", syncCircle);
+  el.pauseQueue?.addEventListener("click", pauseQueue);
+  el.resumeQueue?.addEventListener("click", resumeQueue);
+  el.cancelQueue?.addEventListener("click", cancelQueue);
 
   // Auth listeners
   el.authRequest?.addEventListener("click", requestMagicLink);
   el.authVerify?.addEventListener("click", verifyMagicLink);
   el.authLogout?.addEventListener("click", logout);
+
+  // Backup/import listeners
+  el.exportState?.addEventListener("click", exportState);
+  el.importState?.addEventListener("click", importState);
+  el.notifyPermission?.addEventListener("click", requestNotificationPermission);
+  el.notifyHost?.addEventListener("click", () => notifyHost("manual"));
+  el.downloadIcs?.addEventListener("click", downloadIcsFile);
+  el.flagContent?.addEventListener("click", flagContent);
+  el.bitrateInput?.addEventListener("input", updateEstimate);
+  el.maxDurationInput?.addEventListener("input", updateEstimate);
 
   function startCountdown() {
     if (countdownTimer) clearInterval(countdownTimer);
@@ -868,5 +1395,18 @@
   }
   setBackendStatus("Offline");
   hydrateSessionUI();
+  setProgress(0);
+  updateEstimate();
+  if (el.pauseQueue) {
+    el.pauseQueue.disabled = true;
+    el.resumeQueue.disabled = true;
+    el.cancelQueue.disabled = true;
+  }
   startCountdown();
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("sw.js").catch((err) => {
+      console.warn("SW registration failed", err);
+    });
+  }
+  requestNotificationPermission({ silent: true });
 })();

@@ -4,6 +4,9 @@ import dotenv from "dotenv";
 import { nanoid } from "nanoid";
 import nodemailer from "nodemailer";
 import { Storage } from "@google-cloud/storage";
+import fs from "fs/promises";
+import path from "path";
+import { fileURLToPath } from "url";
 
 dotenv.config();
 
@@ -14,6 +17,8 @@ app.use(express.json({ limit: "10mb" }));
 const PORT = process.env.PORT || 8787;
 const GCS_BUCKET = process.env.GCS_BUCKET || "your-bucket";
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:8000";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DB_FILE = path.join(__dirname, "data", "db.json");
 
 // In-memory demo store. Replace with a real DB before production.
 const db = {
@@ -21,6 +26,46 @@ const db = {
   circles: {}, // id -> {name, ownerId, members: [{id,email,name}], assignments: [{userId, atTs}]}
   loginTokens: {}, // token -> {userId, expires}
 };
+
+let saveInFlight = false;
+let dirty = false;
+
+async function ensureDbDir() {
+  await fs.mkdir(path.dirname(DB_FILE), { recursive: true });
+}
+
+async function loadDbFromDisk() {
+  try {
+    const buf = await fs.readFile(DB_FILE, "utf8");
+    const parsed = JSON.parse(buf);
+    db.users = parsed.users || {};
+    db.circles = parsed.circles || {};
+    db.loginTokens = parsed.loginTokens || {};
+    console.log("[db] loaded from disk");
+  } catch (err) {
+    console.warn("[db] starting fresh (no persisted data yet)", err.message);
+  }
+}
+
+async function saveDb() {
+  if (saveInFlight || !dirty) return;
+  saveInFlight = true;
+  dirty = false;
+  try {
+    await ensureDbDir();
+    await fs.writeFile(DB_FILE, JSON.stringify(db, null, 2), "utf8");
+    console.log("[db] saved");
+  } catch (err) {
+    console.warn("[db] failed to save", err);
+  } finally {
+    saveInFlight = false;
+  }
+}
+
+function markDirty() {
+  dirty = true;
+  setTimeout(saveDb, 500);
+}
 
 let storageClient = null;
 let serviceAccountEmail = null;
@@ -58,6 +103,9 @@ if (process.env.SMTP_HOST) {
   }
 }
 
+loadDbFromDisk();
+setInterval(saveDb, 10000);
+
 const requireUser = (req, res, next) => {
   const userId = req.header("x-user-id") || req.query.userId;
   if (!userId || !db.users[userId]) {
@@ -80,9 +128,11 @@ app.post("/auth/request-link", (req, res) => {
     const id = nanoid(10);
     user = { id, email };
     db.users[id] = user;
+    markDirty();
   }
   const token = nanoid(24);
   db.loginTokens[token] = { userId: user.id, expires: Date.now() + 15 * 60 * 1000 };
+  markDirty();
   sendMagicLink(email, token).catch((err) =>
     console.warn("[email] sendMagicLink failed; continuing", err)
   );
@@ -124,6 +174,7 @@ app.post("/circles", requireUser, (req, res) => {
     hostIndex: 0,
   };
   db.circles[id] = circle;
+  markDirty();
   res.status(201).json({ circle });
 });
 
@@ -135,6 +186,7 @@ app.post("/circles/:id/members", requireUser, (req, res) => {
   if (!email) return res.status(400).json({ error: "email required" });
   const id = nanoid(10);
   circle.members.push({ id, email, name: name || email.split("@")[0] });
+  markDirty();
   res.status(201).json({ members: circle.members });
 });
 
@@ -147,6 +199,7 @@ app.post("/circles/:id/advance", requireUser, (req, res) => {
   circle.assignments.unshift({ userId: host.id, atTs: Date.now(), trigger: "manual" });
   circle.assignments = circle.assignments.slice(0, 100);
   circle.nextSwitch = nextWednesday(Date.now());
+  markDirty();
   res.json({ host, nextSwitch: circle.nextSwitch, assignments: circle.assignments });
 });
 
