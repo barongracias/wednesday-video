@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Wednesday's – rotating weekly video drops</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Wednesday's</p>
+        <h1>One friend, one Wednesday, one minute.</h1>
+        <p class="lede">A simple weekly rotation for your circle. Each Wednesday someone records a quick recap of their week—no installs needed.</p>
+        <div class="hero-actions">
+          <button id="advance-now" class="ghost">Advance to next host</button>
+          <button id="shuffle-order">Shuffle order</button>
+        </div>
+      </div>
+      <div class="badge">MVP<br>Browser</div>
+    </header>
+
+    <section class="card" id="host-card">
+      <div class="card-head">
+        <div>
+          <p class="label">This week's host</p>
+          <h2 id="current-host">Add friends to start</h2>
+        </div>
+        <div class="pill" id="countdown-pill">Next handoff in —</div>
+      </div>
+      <p id="next-switch"></p>
+      <p class="muted">Auto-advances every Wednesday (local time). You can also tap “Advance to next host”.</p>
+    </section>
+
+    <section class="card" id="roster-card">
+      <div class="card-head">
+        <div>
+          <p class="label">Your circle</p>
+          <h3>Rotation order</h3>
+        </div>
+        <div class="card-actions">
+          <button id="reset-rotation" class="ghost">Reset</button>
+        </div>
+      </div>
+      <form id="friend-form" class="inline-form">
+        <input id="friend-input" name="name" autocomplete="name" placeholder="Add a friend" required>
+        <button type="submit">Add</button>
+      </form>
+      <ul id="friend-list" class="friend-list"></ul>
+      <p class="muted tiny">Tip: reorder by shuffling, or remove someone to re-add them where you want them.</p>
+    </section>
+
+    <section class="card" id="record-card">
+      <div class="card-head">
+        <div>
+          <p class="label">Record &amp; share</p>
+          <h3>Capture a 60–90 second recap</h3>
+        </div>
+        <div class="pill neutral" id="recording-status">Idle</div>
+      </div>
+      <div class="record-grid">
+        <div class="video-shell">
+          <video id="preview" playsinline></video>
+          <div id="recording-banner" class="recording-banner hidden">Recording…</div>
+        </div>
+        <div class="controls">
+          <div class="button-row">
+            <button id="start-recording">Start recording</button>
+            <button id="stop-recording" class="danger" disabled>Stop</button>
+          </div>
+          <div class="button-row">
+            <input id="file-input" type="file" accept="video/*" />
+            <button id="use-upload" class="ghost">Use existing video</button>
+          </div>
+          <div class="button-row">
+            <a id="download-link" class="ghost" href="#" download="wednesdays.webm" role="button">Download</a>
+            <button id="share-recording" class="ghost" disabled>Share</button>
+          </div>
+          <p class="muted tiny">Safari 14.3+/Chrome required for in-browser capture. If unsupported, use your phone's camera app and upload later.</p>
+          <div id="recording-support" class="alert hidden"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="history-card">
+      <div class="card-head">
+        <div>
+          <p class="label">History</p>
+          <h3>Who went recently</h3>
+        </div>
+      </div>
+      <ul id="history-list" class="history-list"></ul>
+    </section>
+
+    <section class="card" id="backend-card">
+      <div class="card-head">
+        <div>
+          <p class="label">Backend bridge</p>
+          <h3>Ping API and request signed uploads</h3>
+        </div>
+        <div class="pill neutral" id="backend-status">Offline</div>
+      </div>
+      <div class="inline-form">
+        <input id="api-base" placeholder="API base (e.g., http://localhost:8787)" />
+        <button id="save-api-base" class="ghost">Save</button>
+      </div>
+      <div class="button-row">
+        <button id="ping-api" class="ghost">Ping backend</button>
+        <button id="sign-upload">Request signed upload</button>
+      </div>
+      <div id="upload-status" class="alert hidden"></div>
+      <p class="muted tiny">Needs an API token/user header in production. For now this uses a mock user ID and does not persist to a real cloud unless valid signed URLs are returned.</p>
+    </section>
+
+    <section class="card" id="auth-card">
+      <div class="card-head">
+        <div>
+          <p class="label">Sign in</p>
+          <h3>Magic link (mock) login</h3>
+        </div>
+        <div class="pill neutral" id="auth-status">Logged out</div>
+      </div>
+      <div class="inline-form">
+        <input id="auth-email" type="email" placeholder="you@example.com" autocomplete="email" />
+        <button id="auth-request" class="ghost">Send link (mock)</button>
+      </div>
+      <div class="inline-form">
+        <input id="auth-token" placeholder="Paste token (from email in prod)" />
+        <button id="auth-verify">Verify</button>
+      </div>
+      <div class="button-row">
+        <button id="auth-logout" class="ghost">Log out</button>
+      </div>
+      <div id="auth-message" class="alert hidden"></div>
+      <p class="muted tiny">Today this returns the token directly for testing. In production it would arrive via email, and only verified users could request signed uploads or modify circles.</p>
+    </section>
+
+    <section class="card" id="demo-card">
+      <div class="card-head">
+        <div>
+          <p class="label">Demo / Mock</p>
+          <h3>Test without real users or cameras</h3>
+        </div>
+        <div class="pill neutral" id="demo-status">Idle</div>
+      </div>
+      <div class="button-row">
+        <button id="load-demo" class="ghost">Load demo circle</button>
+        <button id="simulate-handoff" class="ghost">Simulate Wednesday</button>
+      </div>
+      <div class="button-row">
+        <button id="mock-recording">Generate mock recording</button>
+        <button id="mock-upload" class="ghost" disabled>Save to mock cloud</button>
+      </div>
+      <ul id="mock-upload-list" class="history-list"></ul>
+      <p class="muted tiny">Use these controls to practice flows before inviting friends. Mock uploads live only on this device.</p>
+    </section>
+
+    <section class="card soft">
+      <div class="card-head">
+        <div>
+          <p class="label">Idea notes</p>
+          <h3>Ways to level up</h3>
+        </div>
+      </div>
+      <ul class="idea-list">
+        <li><strong>Reminders.</strong> Push or SMS to nudge the weekly host on Tuesday night.</li>
+        <li><strong>Fairness.</strong> Central schedule per circle; no one can skip their turn.</li>
+        <li><strong>Sharing.</strong> Private links with expiring tokens; download controls.</li>
+        <li><strong>Safety.</strong> Consent copy, flag/report, and retention rules.</li>
+      </ul>
+    </section>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
