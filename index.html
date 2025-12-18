@@ -9,6 +9,10 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div class="topbar">
+    <div class="logo">Wednesday's</div>
+    <button id="theme-toggle" class="ghost tiny-btn">Theme</button>
+  </div>
   <div class="app">
     <header class="hero">
       <div>
@@ -121,7 +125,10 @@
         <button id="sign-upload">Request signed upload</button>
         <button id="retry-upload" class="ghost" disabled>Retry upload</button>
         <button id="sync-circle" class="ghost">Sync circle</button>
+        <button id="fetch-uploads" class="ghost">Fetch uploads</button>
+        <button id="fetch-flags" class="ghost">Fetch flags</button>
       </div>
+      <div class="pill neutral" id="fetch-status">No fetches yet</div>
       <p class="muted tiny" id="circle-label">Circle: none</p>
       <div class="progress">
         <div id="upload-progress" class="progress-bar"></div>
@@ -171,9 +178,19 @@
       </div>
       <div class="button-row">
         <button id="auth-logout" class="ghost">Log out</button>
+        <button id="create-invite" class="ghost">Create invite</button>
+      </div>
+      <div class="inline-form">
+        <input id="invite-email" type="email" placeholder="Invite email" autocomplete="email" />
+        <button id="invite-submit" class="ghost">Send invite</button>
+      </div>
+      <div class="inline-form">
+        <input id="invite-token" placeholder="Paste invite token" />
+        <button id="invite-accept" class="ghost">Accept invite</button>
       </div>
       <div id="auth-message" class="alert hidden"></div>
       <p class="muted tiny">Today this returns the token directly for testing. In production it would arrive via email, and only verified users could request signed uploads or modify circles. Get consent before sharing recordings.</p>
+      <ul id="invite-list" class="history-list"></ul>
     </section>
 
     <section class="card" id="demo-card">
@@ -240,6 +257,45 @@
       <ul id="flag-list" class="history-list"></ul>
     </section>
 
+    <section class="card soft" id="device-card">
+      <div class="card-head">
+        <div>
+          <p class="label">Device check</p>
+          <h3>Support status</h3>
+        </div>
+      </div>
+      <div class="status-grid" id="device-status">
+        <div class="status-row"><span class="badge inline" id="status-media">MediaRecorder</span></div>
+        <div class="status-row"><span class="badge inline" id="status-storage">LocalStorage</span></div>
+        <div class="status-row"><span class="badge inline" id="status-notify">Notifications</span></div>
+      </div>
+      <div class="button-row">
+        <button id="run-checks" class="ghost">Run checks</button>
+        <button id="scroll-record" class="ghost">Go to record</button>
+        <button id="scroll-queue" class="ghost">Go to queue</button>
+      </div>
+      <p class="muted tiny">If recording is unsupported, use uploads. Enable notifications for reminder nudges.</p>
+    </section>
+
+    <section class="card soft" id="troubleshoot-card">
+      <div class="card-head">
+        <div>
+          <p class="label">Troubleshooting</p>
+          <h3>Quick fixes</h3>
+        </div>
+      </div>
+      <ul class="idea-list">
+        <li><strong>No recording?</strong> Use “Upload existing video” and check camera permissions.</li>
+        <li><strong>Uploads fail?</strong> Verify API base and rate limits; mock URLs don’t upload.</li>
+        <li><strong>No notifications?</strong> Tap “Enable notifications” and keep this tab open.</li>
+        <li><strong>Low bandwidth?</strong> Lower bitrate and duration; watch the estimated size.</li>
+      </ul>
+      <div class="button-row">
+        <button id="jump-upload" class="ghost">Go to uploads</button>
+        <button id="jump-notify" class="ghost">Enable notifications</button>
+      </div>
+    </section>
+
     <div id="consent-modal" class="modal hidden">
       <div class="modal-content">
         <h3>Consent reminder</h3>
@@ -249,6 +305,11 @@
           <button id="consent-cancel" class="ghost danger">Cancel</button>
         </div>
       </div>
+    </div>
+    <div id="toast" class="toast hidden"></div>
+    <div class="fab-bar">
+      <button id="fab-record" class="tiny-btn">Record</button>
+      <button id="fab-upload" class="tiny-btn ghost">Uploads</button>
     </div>
   </div>
   <script src="app.js"></script>

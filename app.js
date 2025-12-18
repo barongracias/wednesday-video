@@ -61,6 +61,27 @@
     consentAccept: document.getElementById("consent-accept"),
     consentCancel: document.getElementById("consent-cancel"),
     fallbackBanner: document.getElementById("fallback-banner"),
+    themeToggle: document.getElementById("theme-toggle"),
+    fabRecord: document.getElementById("fab-record"),
+    fabUpload: document.getElementById("fab-upload"),
+    runChecks: document.getElementById("run-checks"),
+    scrollRecord: document.getElementById("scroll-record"),
+    scrollQueue: document.getElementById("scroll-queue"),
+    jumpUpload: document.getElementById("jump-upload"),
+    jumpNotify: document.getElementById("jump-notify"),
+    statusMedia: document.getElementById("status-media"),
+    statusStorage: document.getElementById("status-storage"),
+    statusNotify: document.getElementById("status-notify"),
+    toast: document.getElementById("toast"),
+    fetchUploads: document.getElementById("fetch-uploads"),
+    fetchFlags: document.getElementById("fetch-flags"),
+    createInvite: document.getElementById("create-invite"),
+    fetchStatus: document.getElementById("fetch-status"),
+    inviteList: document.getElementById("invite-list"),
+    inviteEmail: document.getElementById("invite-email"),
+    inviteSubmit: document.getElementById("invite-submit"),
+    inviteToken: document.getElementById("invite-token"),
+    inviteAccept: document.getElementById("invite-accept"),
     authEmail: document.getElementById("auth-email"),
     authToken: document.getElementById("auth-token"),
     authRequest: document.getElementById("auth-request"),
@@ -70,6 +91,8 @@
     authMessage: document.getElementById("auth-message"),
   };
 
+  let flags = [];
+  let uploadQueue = [];
   let state = hydrateState();
   let countdownTimer = null;
 
@@ -80,19 +103,32 @@
       nextSwitch: nextWednesday(Date.now()),
       history: [],
       mockUploads: [],
+      flags: [],
+      uploadQueue: [],
     };
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+      flags = saved?.flags || [];
+      uploadQueue = saved?.uploadQueue || [];
       return { ...defaults, ...saved };
     } catch (err) {
       console.warn("Unable to read saved state", err);
+      flags = [];
+      uploadQueue = [];
       return { ...defaults };
     }
   }
 
   function persist() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          ...state,
+          flags,
+          uploadQueue: uploadQueue.filter((u) => u.status !== "uploading"), // don't persist active
+        })
+      );
     } catch (err) {
       console.warn("Unable to save state", err);
     }
@@ -282,14 +318,15 @@
   function renderFlags() {
     if (!el.flagList) return;
     el.flagList.innerHTML = "";
-    if (!flags.length) {
+    const allFlags = [...serverFlags, ...flags].slice(0, 20);
+    if (!allFlags.length) {
       const li = document.createElement("li");
       li.className = "muted tiny";
       li.textContent = "No reports yet.";
       el.flagList.appendChild(li);
       return;
     }
-    flags.slice(0, 10).forEach((f) => {
+    allFlags.slice(0, 20).forEach((f) => {
       const li = document.createElement("li");
       li.innerHTML = `<strong>${f.reason}</strong> — ${formatDate(
         f.when
@@ -301,23 +338,67 @@
   function renderQueue() {
     if (!el.uploadQueueList) return;
     el.uploadQueueList.innerHTML = "";
-    if (!uploadQueue.length) {
+    if (!uploadQueue.length && !serverUploads.length) {
       const li = document.createElement("li");
       li.className = "muted tiny";
       li.textContent = "Queue is empty.";
       el.uploadQueueList.appendChild(li);
+      if (el.clearCompleted) el.clearCompleted.disabled = true;
       return;
     }
+    let hasCompleted = false;
     uploadQueue.forEach((item) => {
       const li = document.createElement("li");
+      const badge = document.createElement("span");
+      badge.className = "badge inline";
+      badge.textContent = item.status;
+      const info = document.createElement("div");
+      info.className = "queue-row";
+      const text = document.createElement("div");
       const pct =
         item.status === "uploading" && item.progress
           ? ` — ${Math.round(item.progress)}%`
           : "";
-      const badge = `<span class="badge inline">${item.status}</span>`;
-      li.innerHTML = `${badge} ${formatBytes(item.size)} <span class="muted tiny">${item.source}${pct}</span>`;
+      text.innerHTML = `${formatBytes(item.size)} <span class="muted tiny">${item.source}${pct}</span>`;
+      const actions = document.createElement("div");
+      if (item.status === "pending" || item.status === "uploading") {
+        const cancelBtn = document.createElement("button");
+        cancelBtn.className = "ghost danger tiny-btn";
+        cancelBtn.textContent = "Cancel";
+        cancelBtn.addEventListener("click", () => cancelQueueItem(item.id));
+        actions.appendChild(cancelBtn);
+      }
+      info.append(badge, text, actions);
+      li.appendChild(info);
+      const barWrap = document.createElement("div");
+      barWrap.className = "queue-progress";
+      const bar = document.createElement("div");
+      bar.className = "queue-progress-bar";
+      bar.style.width =
+        item.status === "uploading" && item.progress
+          ? `${Math.round(item.progress)}%`
+          : item.status === "done"
+          ? "100%"
+          : "0%";
+      barWrap.appendChild(bar);
+      li.appendChild(barWrap);
       el.uploadQueueList.appendChild(li);
+      if (item.status === "done" || item.status === "failed") hasCompleted = true;
     });
+    if (serverUploads.length) {
+      const divider = document.createElement("li");
+      divider.className = "muted tiny";
+      divider.textContent = "Recent server uploads:";
+      el.uploadQueueList.appendChild(divider);
+      serverUploads.slice(0, 5).forEach((u) => {
+        const li = document.createElement("li");
+        li.innerHTML = `<span class="badge inline">server</span> ${formatBytes(
+          u.size
+        )} <span class="muted tiny">${u.contentType || ""}</span>`;
+        el.uploadQueueList.appendChild(li);
+      });
+    }
+    if (el.clearCompleted) el.clearCompleted.disabled = !hasCompleted;
     // prune completed beyond recent 5
     const maxKeep = 5;
     const completed = uploadQueue.filter((u) => u.status === "done" || u.status === "failed");
@@ -333,6 +414,13 @@
     const token = localStorage.getItem(authTokenKey) || "";
     const email = localStorage.getItem(authEmailKey) || "";
     return userId ? { userId, token, email } : null;
+  }
+
+  function authHeaders(session) {
+    const headers = {};
+    if (session?.userId) headers["x-user-id"] = session.userId;
+    if (session?.token) headers.Authorization = `Bearer ${session.token}`;
+    return headers;
   }
 
   function getCircleId() {
@@ -374,6 +462,7 @@
     renderQueue();
     renderUploadAttempts();
     renderFlags();
+    renderInvites();
     persist();
   }
 
@@ -549,6 +638,7 @@
       filename,
       contentType: lastRecordingBlob.type || "video/webm",
       size: lastRecordingBlob.size,
+      duration: 0,
     };
     const session = getSession();
     if (!session?.userId) {
@@ -564,7 +654,7 @@
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-user-id": session.userId,
+          ...authHeaders(session),
         },
         body: JSON.stringify(payload),
       });
@@ -621,6 +711,26 @@
         queue: Boolean(fromQueueItem),
       });
       if (fromQueueItem) fromQueueItem.status = "done";
+      // Commit metadata
+      try {
+        const payloadCommit = {
+          circleId: payload.circleId,
+          resourceUrl: data.resourceUrl,
+          size: payload.size,
+          contentType: payload.contentType,
+          duration: payload.duration,
+        };
+        await fetch(`${base.replace(/\/$/, "")}/uploads/commit`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders(session),
+          },
+          body: JSON.stringify(payloadCommit),
+        });
+      } catch (errCommit) {
+        console.warn("Metadata commit failed", errCommit);
+      }
       renderUploadAttempts();
       renderQueue();
       el.retryUpload.disabled = false;
@@ -812,6 +922,10 @@
   function cancelQueue() {
     uploadQueue = [];
     currentQueueItem = null;
+    if (currentUploadXhr) {
+      currentUploadXhr.abort();
+      currentUploadXhr = null;
+    }
     queueState = "idle";
     el.pauseQueue.disabled = true;
     el.resumeQueue.disabled = true;
@@ -824,17 +938,161 @@
     uploadQueue = uploadQueue.filter((u) => u.status !== "done" && u.status !== "failed");
     renderQueue();
     setUploadStatus("Cleared completed uploads.");
+    persist();
   }
 
-  function showConsent() {
+  function cancelQueueItem(id) {
+    const idx = uploadQueue.findIndex((u) => u.id === id);
+    if (idx === -1) return;
+    if (currentQueueItem && currentQueueItem.id === id && currentUploadXhr) {
+      currentUploadXhr.abort();
+      currentUploadXhr = null;
+    }
+    const removed = uploadQueue.splice(idx, 1)[0];
+    if (!uploadQueue.length) {
+      queueState = "idle";
+      el.pauseQueue.disabled = true;
+      el.resumeQueue.disabled = true;
+      el.cancelQueue.disabled = true;
+    }
+    uploadAttempts.unshift({
+      status: "cancelled",
+      size: removed?.size || 0,
+      when: Date.now(),
+      mock: removed?.source === "mock",
+      queue: true,
+    });
+    renderQueue();
+    renderUploadAttempts();
+    persist();
+    processQueue();
+    showToast("Upload cancelled");
+  }
+
+  let pendingConsentAction = null;
+
+  function showConsent(action = null) {
     if (!el.consentModal) return true;
+    pendingConsentAction = action;
     el.consentModal.classList.remove("hidden");
+    el.consentModal.setAttribute("aria-hidden", "false");
     return false;
+  }
+
+  function hideConsentModal() {
+    if (!el.consentModal) return;
+    el.consentModal.classList.add("hidden");
+    el.consentModal.setAttribute("aria-hidden", "true");
+  }
+
+  async function createInvite() {
+    const base = el.apiBase?.value?.trim();
+    const session = getSession();
+    if (!base || !session?.userId) {
+      setUploadStatus("Set API base and log in to create invites.", "error");
+      return;
+    }
+    const email = (el.inviteEmail?.value || "").trim();
+    if (!email) {
+      setUploadStatus("Enter an invite email.", "error");
+      return;
+    }
+    try {
+      const res = await fetch(`${base.replace(/\/$/, "")}/invites`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders(session),
+        },
+        body: JSON.stringify({ circleId: getCircleId() || "demo-circle", email }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Invite failed");
+      invites.unshift({ email, token: data.token, url: data.inviteUrl, when: Date.now() });
+      renderInvites();
+      setUploadStatus("Invite created (mock); share link manually.");
+      setFetchStatus("Invite created", "success");
+      if (el.inviteEmail) el.inviteEmail.value = "";
+    } catch (err) {
+      console.warn(err);
+      setUploadStatus(err.message || "Invite failed", "error");
+      setFetchStatus("Invite failed", "error");
+    }
+  }
+
+  async function acceptInviteFromUrl() {
+    const token = new URLSearchParams(window.location.search).get("invite");
+    if (!token) return;
+    const base = el.apiBase?.value?.trim();
+    const session = getSession();
+    if (!base || !session?.userId) return;
+    await acceptInviteToken(token, base, session);
+  }
+
+  async function acceptInviteToken(token, base, session) {
+    try {
+      const res = await fetch(`${base.replace(/\/$/, "")}/invites/${token}/accept`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders(session),
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Invite accept failed");
+      localStorage.setItem(circleIdKey, data.circleId);
+      setCircleLabel(data.circleId);
+      setUploadStatus("Invite accepted; synced circle.");
+      renderAll();
+      setFetchStatus("Invite accepted", "success");
+    } catch (err) {
+      console.warn(err);
+      setUploadStatus(err.message || "Invite accept failed", "error");
+      setFetchStatus("Invite accept failed", "error");
+    }
+  }
+
+  function renderInvites() {
+    if (!el.inviteList) return;
+    el.inviteList.innerHTML = "";
+    if (!invites.length) {
+      const li = document.createElement("li");
+      li.className = "muted tiny";
+      li.textContent = "No invites yet.";
+      el.inviteList.appendChild(li);
+      return;
+    }
+    invites.slice(0, 10).forEach((inv) => {
+      const li = document.createElement("li");
+      const row = document.createElement("div");
+      row.className = "queue-row";
+      const text = document.createElement("div");
+      text.innerHTML = `<strong>${inv.email}</strong> <span class="muted tiny">${formatDate(
+        inv.when
+      )}</span>`;
+      const actions = document.createElement("div");
+      const copyBtn = document.createElement("button");
+      copyBtn.className = "ghost tiny-btn";
+      copyBtn.textContent = "Copy link";
+      copyBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(inv.url || inv.token);
+          showToast("Invite link copied");
+        } catch {
+          showToast("Copy failed; select text manually.");
+        }
+      });
+      actions.appendChild(copyBtn);
+      row.append(text, actions);
+      li.appendChild(row);
+      el.inviteList.appendChild(li);
+    });
   }
 
   async function uploadWithProgress(url, blob, contentType, queueItem) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
+      currentUploadXhr = xhr;
       xhr.open("PUT", url);
       xhr.setRequestHeader("Content-Type", contentType || "application/octet-stream");
       xhr.upload.onprogress = (evt) => {
@@ -848,10 +1106,18 @@
         }
       };
       xhr.onload = () => {
+        currentUploadXhr = null;
         if (xhr.status >= 200 && xhr.status < 300) resolve();
         else reject(new Error(`Upload failed with status ${xhr.status}`));
       };
-      xhr.onerror = () => reject(new Error("Network error during upload"));
+      xhr.onerror = () => {
+        currentUploadXhr = null;
+        reject(new Error("Network error during upload"));
+      };
+      xhr.onabort = () => {
+        currentUploadXhr = null;
+        reject(new Error("Upload aborted"));
+      };
       xhr.send(blob);
     });
   }
@@ -988,6 +1254,18 @@
     flags.unshift({ reason, note, when: Date.now() });
     renderFlags();
     setUploadStatus("Flag saved locally. Add server moderation before wider use.");
+    const base = el.apiBase?.value?.trim();
+    const session = getSession();
+    if (base && session?.userId) {
+      fetch(`${base.replace(/\/$/, "")}/flags`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": session.userId,
+        },
+        body: JSON.stringify({ reason, note, circleId: getCircleId() || "local" }),
+      }).catch((err) => console.warn("Flag API failed", err));
+    }
   }
 
   async function syncCircle() {
@@ -1000,9 +1278,7 @@
       setBackendStatus("Syncing…");
       // fetch circles
       const circlesRes = await fetch(api("/circles"), {
-        headers: {
-          "x-user-id": session.userId,
-        },
+        headers: authHeaders(session),
       });
       if (!circlesRes.ok) throw new Error("Failed to fetch circles");
       const circles = await circlesRes.json();
@@ -1013,7 +1289,7 @@
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-user-id": session.userId,
+            ...authHeaders(session),
           },
           body: JSON.stringify({ name: "Wednesday Demo" }),
         });
@@ -1027,19 +1303,19 @@
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-user-id": session.userId,
+            ...authHeaders(session),
           },
           body: JSON.stringify({ email: `${name.toLowerCase()}@example.com`, name }),
         });
       }
       // refresh circle members
       const refreshed = await fetch(api("/circles"), {
-        headers: { "x-user-id": session.userId },
+        headers: authHeaders(session),
       }).then((r) => r.json());
       circle = refreshed.circles?.find((c) => c.id === circle.id) || circle;
       // get assignments
       const assignRes = await fetch(api(`/circles/${circle.id}/assignments`), {
-        headers: { "x-user-id": session.userId },
+        headers: authHeaders(session),
       });
       const assigns = await assignRes.json();
       if (assignRes.ok) {
@@ -1087,11 +1363,20 @@
   let recordTicker = null;
   let uploadAttempts = [];
   let lastNotificationPermission = typeof Notification !== "undefined" ? Notification.permission : "denied";
-  let flags = [];
-  let uploadQueue = [];
   let queueState = "idle"; // idle, running, paused
   let currentQueueItem = null;
+  let currentUploadXhr = null;
   let consentGranted = false;
+  let toastTimer = null;
+  let theme =
+    localStorage.getItem("wednesdays-theme") ||
+    (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
+      ? "light"
+      : "dark");
+  let serverUploads = [];
+  let serverFlags = [];
+  let invites = [];
+  let lastFetchStatus = "No fetches yet";
   const apiConfigKey = "wednesdays-api-base";
   const userIdKey = "wednesdays-user-id";
   const authTokenKey = "wednesdays-auth-token";
@@ -1146,6 +1431,15 @@
     if (el.circleLabel) el.circleLabel.textContent = `Circle: ${text}`;
   }
 
+  function setFetchStatus(text, variant = "neutral") {
+    lastFetchStatus = text;
+    if (!el.fetchStatus) return;
+    el.fetchStatus.textContent = text;
+    el.fetchStatus.classList.toggle("neutral", variant === "neutral");
+    el.fetchStatus.classList.toggle("danger", variant === "error");
+    el.fetchStatus.classList.toggle("success", variant === "success");
+  }
+
   function setProgress(percent) {
     if (!el.uploadProgress) return;
     el.uploadProgress.style.width = `${Math.min(Math.max(percent, 0), 100)}%`;
@@ -1156,6 +1450,108 @@
     const seconds = clamp(Number(el.maxDurationInput?.value) || MAX_DURATION_SEC, 30, 300);
     const bytes = (bitrate * 1000 * seconds) / 8 + 128000 * seconds / 8; // video + audio rough
     if (el.estSize) el.estSize.textContent = `Est. size: ${formatBytes(bytes)}`;
+    showToast("Bitrate/duration updated; estimate refreshed.");
+  }
+
+  function showToast(text) {
+    if (!el.toast) return;
+    el.toast.textContent = text;
+    el.toast.classList.remove("hidden");
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      el.toast.classList.add("hidden");
+    }, 2200);
+  }
+
+  function applyTheme(next, opts = {}) {
+    theme = next;
+    if (theme === "light") {
+      document.documentElement.classList.add("light");
+    } else {
+      document.documentElement.classList.remove("light");
+    }
+    localStorage.setItem("wednesdays-theme", theme);
+    if (!opts.silent) showToast(`Theme: ${theme}`);
+  }
+
+  function toggleTheme() {
+    applyTheme(theme === "light" ? "dark" : "light");
+  }
+
+  function setBadge(elBadge, label, ok) {
+    if (!elBadge) return;
+    elBadge.textContent = label;
+    elBadge.style.borderColor = ok ? "rgba(127,255,212,0.6)" : "rgba(255,107,129,0.6)";
+    elBadge.style.color = ok ? "var(--accent)" : "var(--danger)";
+  }
+
+  function runChecks(opts = {}) {
+    const mediaOk = typeof MediaRecorder !== "undefined" && navigator.mediaDevices;
+    const storageOk = (() => {
+      try {
+        localStorage.setItem("__w_test", "1");
+        localStorage.removeItem("__w_test");
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+    const notifyOk = typeof Notification !== "undefined" && Notification.permission === "granted";
+    setBadge(el.statusMedia, `MediaRecorder: ${mediaOk ? "ok" : "no"}`, mediaOk);
+    setBadge(el.statusStorage, `LocalStorage: ${storageOk ? "ok" : "no"}`, storageOk);
+    setBadge(el.statusNotify, `Notifications: ${Notification?.permission || "n/a"}`, notifyOk);
+    if (!mediaOk && el.fallbackBanner) el.fallbackBanner.classList.remove("hidden");
+    if (!opts.silent) showToast("Checks updated");
+  }
+
+  async function fetchUploads() {
+    const base = el.apiBase?.value?.trim();
+    const session = getSession();
+    if (!base || !session?.userId) {
+      setUploadStatus("Set API base and log in to fetch uploads.", "error");
+      setFetchStatus("Fetch uploads failed (auth/base)", "error");
+      return;
+    }
+    try {
+      const res = await fetch(`${base.replace(/\/$/, "")}/uploads?circleId=${getCircleId() || ""}`, {
+        headers: authHeaders(session),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Fetch failed");
+      serverUploads = (data.uploads || []).map((u) => ({ ...u, status: "server" }));
+      renderQueue();
+      setUploadStatus(`Fetched ${serverUploads.length} uploads from server.`);
+      setFetchStatus(`Uploads fetched (${serverUploads.length})`, "success");
+    } catch (err) {
+      console.warn(err);
+      setUploadStatus(err.message || "Fetch uploads failed", "error");
+      setFetchStatus("Fetch uploads failed", "error");
+    }
+  }
+
+  async function fetchFlags() {
+    const base = el.apiBase?.value?.trim();
+    const session = getSession();
+    if (!base || !session?.userId) {
+      setUploadStatus("Set API base and log in to fetch flags.", "error");
+      setFetchStatus("Fetch flags failed (auth/base)", "error");
+      return;
+    }
+    try {
+      const res = await fetch(`${base.replace(/\/$/, "")}/flags?circleId=${getCircleId() || ""}`, {
+        headers: authHeaders(session),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Fetch failed");
+      serverFlags = data.flags || [];
+      renderFlags();
+      setUploadStatus(`Fetched ${serverFlags.length} flags from server.`);
+      setFetchStatus(`Flags fetched (${serverFlags.length})`, "success");
+    } catch (err) {
+      console.warn(err);
+      setUploadStatus(err.message || "Fetch flags failed", "error");
+      setFetchStatus("Fetch flags failed", "error");
+    }
   }
 
   function setRecordingTimerText(text) {
@@ -1247,10 +1643,13 @@
         "In-browser recording is not supported here. Use your camera app and upload/share manually."
       );
       if (el.fallbackBanner) el.fallbackBanner.classList.remove("hidden");
+      if (el.statusMedia) el.statusMedia.textContent = "MediaRecorder: unsupported";
       return;
     }
+    if (el.statusMedia) el.statusMedia.textContent = "MediaRecorder: ok";
+    if (el.fallbackBanner) el.fallbackBanner.classList.add("hidden");
     if (!consentGranted) {
-      const ok = showConsent();
+      const ok = showConsent("record");
       if (!ok) return;
     }
     try {
@@ -1407,11 +1806,54 @@
   el.maxDurationInput?.addEventListener("input", updateEstimate);
   el.consentAccept?.addEventListener("click", () => {
     consentGranted = true;
-    if (el.consentModal) el.consentModal.classList.add("hidden");
+    const action = pendingConsentAction;
+    pendingConsentAction = null;
+    hideConsentModal();
+    showToast("Consent acknowledged. You can record now.");
+    if (action === "record") {
+      startRecording();
+    }
   });
   el.consentCancel?.addEventListener("click", () => {
     consentGranted = false;
-    if (el.consentModal) el.consentModal.classList.add("hidden");
+    pendingConsentAction = null;
+    hideConsentModal();
+    showToast("Recording cancelled.");
+  });
+  el.themeToggle?.addEventListener("click", toggleTheme);
+  el.fabRecord?.addEventListener("click", () =>
+    document.getElementById("record-card")?.scrollIntoView({ behavior: "smooth" })
+  );
+  el.fabUpload?.addEventListener("click", () =>
+    document.getElementById("backend-card")?.scrollIntoView({ behavior: "smooth" })
+  );
+  el.runChecks?.addEventListener("click", runChecks);
+  el.scrollRecord?.addEventListener("click", () =>
+    document.getElementById("record-card")?.scrollIntoView({ behavior: "smooth" })
+  );
+  el.scrollQueue?.addEventListener("click", () =>
+    document.getElementById("backend-card")?.scrollIntoView({ behavior: "smooth" })
+  );
+  el.jumpUpload?.addEventListener("click", () =>
+    document.getElementById("backend-card")?.scrollIntoView({ behavior: "smooth" })
+  );
+  el.jumpNotify?.addEventListener("click", () => {
+    requestNotificationPermission();
+    document.getElementById("reminders-card")?.scrollIntoView({ behavior: "smooth" });
+  });
+  el.fetchUploads?.addEventListener("click", fetchUploads);
+  el.fetchFlags?.addEventListener("click", fetchFlags);
+  el.createInvite?.addEventListener("click", createInvite);
+  el.inviteSubmit?.addEventListener("click", createInvite);
+  el.inviteAccept?.addEventListener("click", async () => {
+    const token = (el.inviteToken?.value || "").trim();
+    const base = el.apiBase?.value?.trim();
+    const session = getSession();
+    if (!token || !base || !session?.userId) {
+      setUploadStatus("Need invite token, API base, and login to accept.", "error");
+      return;
+    }
+    await acceptInviteToken(token, base, session);
   });
 
   function startCountdown() {
@@ -1425,10 +1867,13 @@
   if (el.apiBase) {
     el.apiBase.value = getApiBase();
   }
+  applyTheme(theme, { silent: true });
   setBackendStatus("Offline");
   hydrateSessionUI();
   setProgress(0);
   updateEstimate();
+  runChecks({ silent: true });
+  acceptInviteFromUrl();
   if (el.pauseQueue) {
     el.pauseQueue.disabled = true;
     el.resumeQueue.disabled = true;
