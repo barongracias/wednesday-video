@@ -35,6 +35,8 @@
     signUpload: document.getElementById("sign-upload"),
     backendStatus: document.getElementById("backend-status"),
     uploadStatus: document.getElementById("upload-status"),
+    syncCircle: document.getElementById("sync-circle"),
+    circleLabel: document.getElementById("circle-label"),
     authEmail: document.getElementById("auth-email"),
     authToken: document.getElementById("auth-token"),
     authRequest: document.getElementById("auth-request"),
@@ -232,6 +234,38 @@
     el.mockUpload.disabled = !lastRecordingBlob;
   }
 
+  function getSession() {
+    const userId = localStorage.getItem(userIdKey) || "";
+    const token = localStorage.getItem(authTokenKey) || "";
+    const email = localStorage.getItem(authEmailKey) || "";
+    return userId ? { userId, token, email } : null;
+  }
+
+  function getCircleId() {
+    return localStorage.getItem(circleIdKey) || "";
+  }
+
+  function hydrateSessionUI() {
+    const session = getSession();
+    if (session?.email && el.authEmail) el.authEmail.value = session.email;
+    if (session?.token && el.authToken) el.authToken.value = session.token;
+    if (session?.userId) {
+      setAuthStatus(`Logged in as ${session.email || session.userId}`);
+      setUploadStatus("Using saved session. Ready to request signed uploads.");
+    } else {
+      setAuthStatus("Logged out");
+    }
+    const cid = getCircleId();
+    if (cid) setCircleLabel(cid);
+    // If token present in URL, prefill for convenience.
+    const urlToken = new URLSearchParams(window.location.search).get("token");
+    if (urlToken && el.authToken) {
+      el.authToken.value = urlToken;
+      localStorage.setItem(authTokenKey, urlToken);
+      setAuthMessage("Token detected from URL. Click Verify to log in.");
+    }
+  }
+
   function renderAll() {
     ensureRotation();
     renderHost();
@@ -404,7 +438,7 @@
       el.downloadLink?.download ||
       `${state.friends[state.hostIndex] || "wednesday"}-${Date.now()}.webm`;
     const payload = {
-      circleId: "demo-circle",
+      circleId: getCircleId() || "demo-circle",
       filename,
       contentType: lastRecordingBlob.type || "video/webm",
       size: lastRecordingBlob.size,
@@ -456,6 +490,147 @@
     }
   }
 
+  async function requestMagicLink() {
+    const base = el.apiBase.value.trim();
+    const email = el.authEmail.value.trim();
+    if (!base) return setAuthMessage("Enter API base first.", "error");
+    if (!email) return setAuthMessage("Enter email.", "error");
+    try {
+      setAuthStatus("Sending…");
+      const res = await fetch(`${base.replace(/\/$/, "")}/auth/request-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to request link");
+      // In dev we get token back; save it for convenience.
+      if (data.token) {
+        el.authToken.value = data.token;
+        localStorage.setItem(authTokenKey, data.token);
+      }
+      localStorage.setItem(authEmailKey, email);
+      setAuthStatus("Link sent (mock)");
+      setAuthMessage("Token returned for dev; paste above or simulate email flow.");
+    } catch (err) {
+      console.warn(err);
+      setAuthStatus("Logged out");
+      setAuthMessage(err.message || "Request failed", "error");
+    }
+  }
+
+  async function verifyMagicLink() {
+    const base = el.apiBase.value.trim();
+    const token = el.authToken.value.trim();
+    if (!base) return setAuthMessage("Enter API base first.", "error");
+    if (!token) return setAuthMessage("Paste token from email.", "error");
+    try {
+      setAuthStatus("Verifying…");
+      const res = await fetch(`${base.replace(/\/$/, "")}/auth/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Verify failed");
+      localStorage.setItem(userIdKey, data.userId);
+      localStorage.setItem(authTokenKey, token);
+      setAuthStatus(`Logged in as ${el.authEmail.value || data.userId}`);
+      setAuthMessage("Logged in. You can now request signed uploads and circle changes.");
+      setUploadStatus("Authenticated. Ready for signed uploads.");
+    } catch (err) {
+      console.warn(err);
+      setAuthStatus("Logged out");
+      setAuthMessage(err.message || "Verify failed", "error");
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem(userIdKey);
+    localStorage.removeItem(authTokenKey);
+    localStorage.removeItem(circleIdKey);
+    setAuthStatus("Logged out");
+    setAuthMessage("Logged out locally.");
+    setUploadStatus("Need to log in for uploads.", "error");
+    setCircleLabel("none");
+  }
+
+  async function syncCircle() {
+    const base = el.apiBase.value.trim();
+    const session = getSession();
+    if (!base) return setUploadStatus("Enter API base first.", "error");
+    if (!session?.userId) return setUploadStatus("Log in first.", "error");
+    const api = (path) => `${base.replace(/\/$/, "")}${path}`;
+    try {
+      setBackendStatus("Syncing…");
+      // fetch circles
+      const circlesRes = await fetch(api("/circles"), {
+        headers: {
+          "x-user-id": session.userId,
+        },
+      });
+      if (!circlesRes.ok) throw new Error("Failed to fetch circles");
+      const circles = await circlesRes.json();
+      let circle = circles.circles?.[0];
+      if (!circle) {
+        // create a demo circle
+        const createRes = await fetch(api("/circles"), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-user-id": session.userId,
+          },
+          body: JSON.stringify({ name: "Wednesday Demo" }),
+        });
+        circle = (await createRes.json()).circle;
+        // add members from local state
+        for (const name of state.friends) {
+          await fetch(api(`/circles/${circle.id}/members`), {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-user-id": session.userId,
+            },
+            body: JSON.stringify({ email: `${name.toLowerCase()}@example.com`, name }),
+          });
+        }
+      }
+      // get assignments
+      const assignRes = await fetch(api(`/circles/${circle.id}/assignments`), {
+        headers: { "x-user-id": session.userId },
+      });
+      const assigns = await assignRes.json();
+      if (assignRes.ok) {
+        state.friends = circle.members?.map((m) => m.name) || state.friends;
+        if (assigns.host?.name) {
+          const idx = state.friends.findIndex((n) => n === assigns.host.name);
+          state.hostIndex = idx >= 0 ? idx : 0;
+        }
+        state.nextSwitch = assigns.nextSwitch || state.nextSwitch;
+        state.history =
+          assigns.assignments?.map((a) => ({
+            name:
+              circle.members?.find((m) => m.id === a.userId)?.name ||
+              assigns.host?.name ||
+              "Host",
+            when: a.atTs,
+            trigger: a.trigger || "server",
+          })) || state.history;
+        localStorage.setItem(circleIdKey, circle.id);
+        setCircleLabel(circle.id);
+        renderAll();
+        setBackendStatus("Synced");
+        setUploadStatus("Backend circle synced; uploads will use this circle.");
+      } else {
+        throw new Error(assigns.error || "Failed to sync assignments");
+      }
+    } catch (err) {
+      console.warn(err);
+      setBackendStatus("Offline");
+      setUploadStatus(err.message || "Failed to sync circle", "error");
+    }
+  }
+
   // Recording logic
   let recorder = null;
   let stream = null;
@@ -466,6 +641,7 @@
   const userIdKey = "wednesdays-user-id";
   const authTokenKey = "wednesdays-auth-token";
   const authEmailKey = "wednesdays-auth-email";
+  const circleIdKey = "wednesdays-circle-id";
 
   function getApiBase() {
     return (localStorage.getItem(apiConfigKey) || "").trim();
@@ -502,6 +678,10 @@
     el.authMessage.classList.remove("hidden");
     el.authMessage.style.borderColor =
       variant === "error" ? "rgba(255,107,129,0.8)" : "var(--border)";
+  }
+
+  function setCircleLabel(text) {
+    if (el.circleLabel) el.circleLabel.textContent = `Circle: ${text}`;
   }
 
   function updateRecordingUI(status = "Idle") {
@@ -668,6 +848,7 @@
   });
   el.pingApi.addEventListener("click", pingBackend);
   el.signUpload.addEventListener("click", requestSignedUpload);
+  el.syncCircle?.addEventListener("click", syncCircle);
 
   // Auth listeners
   el.authRequest?.addEventListener("click", requestMagicLink);

@@ -2,6 +2,8 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { nanoid } from "nanoid";
+import nodemailer from "nodemailer";
+import { Storage } from "@google-cloud/storage";
 
 dotenv.config();
 
@@ -11,6 +13,7 @@ app.use(express.json({ limit: "10mb" }));
 
 const PORT = process.env.PORT || 8787;
 const GCS_BUCKET = process.env.GCS_BUCKET || "your-bucket";
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:8000";
 
 // In-memory demo store. Replace with a real DB before production.
 const db = {
@@ -18,6 +21,42 @@ const db = {
   circles: {}, // id -> {name, ownerId, members: [{id,email,name}], assignments: [{userId, atTs}]}
   loginTokens: {}, // token -> {userId, expires}
 };
+
+let storageClient = null;
+let serviceAccountEmail = null;
+if (process.env.SERVICE_ACCOUNT_KEY_B64) {
+  try {
+    const creds = JSON.parse(
+      Buffer.from(process.env.SERVICE_ACCOUNT_KEY_B64, "base64").toString("utf8")
+    );
+    storageClient = new Storage({
+      projectId: process.env.GCP_PROJECT_ID || creds.project_id,
+      credentials: creds,
+    });
+    serviceAccountEmail = creds.client_email;
+    console.log("[gcs] initialized storage client");
+  } catch (err) {
+    console.warn("[gcs] failed to init storage client, using mock signing", err);
+  }
+}
+
+let mailer = null;
+if (process.env.SMTP_HOST) {
+  try {
+    mailer = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: false,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+    console.log("[email] SMTP transporter configured");
+  } catch (err) {
+    console.warn("[email] failed to set up SMTP transporter; falling back to console", err);
+  }
+}
 
 const requireUser = (req, res, next) => {
   const userId = req.header("x-user-id") || req.query.userId;
@@ -44,8 +83,13 @@ app.post("/auth/request-link", (req, res) => {
   }
   const token = nanoid(24);
   db.loginTokens[token] = { userId: user.id, expires: Date.now() + 15 * 60 * 1000 };
-  // In production: send email with token link; here we just return it for testing.
-  res.json({ token, message: "Mock token; would be emailed in production" });
+  sendMagicLink(email, token).catch((err) =>
+    console.warn("[email] sendMagicLink failed; continuing", err)
+  );
+  res.json({
+    token,
+    message: mailer ? "Link emailed (check inbox)" : "Mock token; would be emailed in production",
+  });
 });
 
 app.post("/auth/verify", (req, res) => {
@@ -122,14 +166,28 @@ app.post("/uploads/sign", requireUser, (req, res) => {
   if (!circleId || !filename) return res.status(400).json({ error: "circleId and filename required" });
   // In production: validate membership; create object path; sign PUT/GET URLs with expiry.
   const objectPath = `circles/${circleId}/${nanoid(6)}-${sanitize(filename)}`;
-  const expiresIn = 15 * 60; // seconds
-  res.json({
-    uploadUrl: `https://storage.googleapis.com/${GCS_BUCKET}/${objectPath}?X-Goog-Signature=mock&expires=${expiresIn}`,
-    downloadUrl: `https://storage.googleapis.com/${GCS_BUCKET}/${objectPath}?X-Goog-Signature=mock&expires=${expiresIn}`,
-    resourceUrl: `gs://${GCS_BUCKET}/${objectPath}`,
-    expiresIn,
-    meta: { contentType, size },
-  });
+  const expiresInSeconds = 15 * 60; // seconds
+  signUrls(objectPath, contentType, expiresInSeconds)
+    .then((signed) => {
+      res.json({
+        uploadUrl: signed.uploadUrl,
+        downloadUrl: signed.downloadUrl,
+        resourceUrl: `gs://${GCS_BUCKET}/${objectPath}`,
+        expiresIn: expiresInSeconds,
+        meta: { contentType, size },
+      });
+    })
+    .catch((err) => {
+      console.warn("[sign] falling back to mock", err);
+      res.json({
+        uploadUrl: `https://storage.googleapis.com/${GCS_BUCKET}/${objectPath}?X-Goog-Signature=mock&expires=${expiresInSeconds}`,
+        downloadUrl: `https://storage.googleapis.com/${GCS_BUCKET}/${objectPath}?X-Goog-Signature=mock&expires=${expiresInSeconds}`,
+        resourceUrl: `gs://${GCS_BUCKET}/${objectPath}`,
+        expiresIn: expiresInSeconds,
+        meta: { contentType, size },
+        mock: true,
+      });
+    });
 });
 
 function sanitize(name) {
@@ -143,6 +201,39 @@ function nextWednesday(afterTs) {
   const delta = (3 - day + 7) % 7 || 7;
   d.setDate(d.getDate() + delta);
   return d.getTime();
+}
+
+async function signUrls(objectPath, contentType, expiresInSeconds) {
+  if (!storageClient || !serviceAccountEmail) throw new Error("no storage client configured");
+  const bucket = storageClient.bucket(GCS_BUCKET);
+  const file = bucket.file(objectPath);
+  const expires = Date.now() + expiresInSeconds * 1000;
+  const [uploadUrl] = await file.getSignedUrl({
+    version: "v4",
+    action: "write",
+    expires,
+    contentType: contentType || "application/octet-stream",
+  });
+  const [downloadUrl] = await file.getSignedUrl({
+    version: "v4",
+    action: "read",
+    expires,
+  });
+  return { uploadUrl, downloadUrl };
+}
+
+async function sendMagicLink(email, token) {
+  const link = `${FRONTEND_URL}?token=${encodeURIComponent(token)}`;
+  if (!mailer) {
+    console.log(`[auth] mock magic link for ${email}: ${link}`);
+    return;
+  }
+  await mailer.sendMail({
+    from: process.env.SMTP_FROM || "Wednesdays <no-reply@example.com>",
+    to: email,
+    subject: "Your Wednesday's login link",
+    text: `Tap to sign in: ${link}\n\nToken: ${token}\n(This is a magic link; it expires in 15 minutes)`,
+  });
 }
 
 app.listen(PORT, () => {
