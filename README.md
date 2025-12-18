@@ -41,6 +41,8 @@ Open `index.html` in your browser or serve the folder locally (e.g., `python -m 
 - Upload UX now shows progress and keeps a local attempts log; you can retry after failures. Clips are capped at ~150MB and 120s; longer/larger uploads are blocked client-side.
 - You can set target bitrate and max duration before recording; choose lower bitrate for smaller files.
 - Uploads are queued; pause/resume/cancel controls manage the queue. Queue entries show in a queue list; history log shows outcomes.
+- Per-item progress shows in the queue list. “Clear completed” trims finished/failed items.
+- Consent reminder appears before recording; unsupported devices see a recording fallback message (use upload).
 
 ### Backup/restore
 - Use **Download backup** to save local state (friends, history, mock uploads, settings). Import it on the same or another device via **Import backup**.

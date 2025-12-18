@@ -67,6 +67,7 @@
           <video id="preview" playsinline></video>
           <div id="recording-banner" class="recording-banner hidden">Recording…</div>
         </div>
+        <div id="fallback-banner" class="alert hidden">Recording not supported on this device. Use “Upload existing video” below.</div>
         <div class="controls">
           <div class="button-row">
             <button id="start-recording">Start recording</button>
@@ -129,6 +130,7 @@
         <button id="pause-queue" class="ghost" disabled>Pause queue</button>
         <button id="resume-queue" class="ghost" disabled>Resume queue</button>
         <button id="cancel-queue" class="ghost danger" disabled>Cancel queue</button>
+        <button id="clear-completed" class="ghost" disabled>Clear completed</button>
       </div>
       <ul id="upload-queue-list" class="history-list"></ul>
       <ul id="upload-attempts" class="history-list"></ul>
@@ -237,6 +239,17 @@
       </div>
       <ul id="flag-list" class="history-list"></ul>
     </section>
+
+    <div id="consent-modal" class="modal hidden">
+      <div class="modal-content">
+        <h3>Consent reminder</h3>
+        <p class="muted tiny">Only record if everyone is okay with sharing in this circle. No hateful/abusive content.</p>
+        <div class="button-row">
+          <button id="consent-accept">I agree</button>
+          <button id="consent-cancel" class="ghost danger">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>
   <script src="app.js"></script>
 </body>

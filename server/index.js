@@ -19,6 +19,8 @@ const GCS_BUCKET = process.env.GCS_BUCKET || "your-bucket";
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:8000";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_FILE = path.join(__dirname, "data", "db.json");
+const RATE_WINDOW_MS = Number(process.env.RATE_WINDOW_MS || 60000);
+const RATE_MAX = Number(process.env.RATE_MAX || 120);
 
 // In-memory demo store. Replace with a real DB before production.
 const db = {
@@ -69,6 +71,8 @@ function markDirty() {
 
 let storageClient = null;
 let serviceAccountEmail = null;
+const requestLog = [];
+const rateBuckets = new Map();
 if (process.env.SERVICE_ACCOUNT_KEY_B64) {
   try {
     const creds = JSON.parse(
@@ -115,12 +119,32 @@ const requireUser = (req, res, next) => {
   next();
 };
 
+const rateLimit = (req, res, next) => {
+  const ip = req.ip || req.connection.remoteAddress || "unknown";
+  const now = Date.now();
+  const windowStart = now - RATE_WINDOW_MS;
+  const bucket = rateBuckets.get(ip) || [];
+  const recent = bucket.filter((t) => t > windowStart);
+  recent.push(now);
+  rateBuckets.set(ip, recent);
+  if (recent.length > RATE_MAX) {
+    return res.status(429).json({ error: "rate limit exceeded" });
+  }
+  next();
+};
+
+app.use((req, res, next) => {
+  requestLog.push({ path: req.path, method: req.method, at: Date.now() });
+  if (requestLog.length > 200) requestLog.shift();
+  next();
+});
+
 app.get("/health", (req, res) => {
   res.json({ ok: true, env: process.env.NODE_ENV || "development" });
 });
 
 // Mock magic link flow: request link -> returns token (would be emailed), verify -> returns session userId
-app.post("/auth/request-link", (req, res) => {
+app.post("/auth/request-link", rateLimit, (req, res) => {
   const { email } = req.body || {};
   if (!email) return res.status(400).json({ error: "email required" });
   let user = Object.values(db.users).find((u) => u.email === email);
@@ -142,7 +166,7 @@ app.post("/auth/request-link", (req, res) => {
   });
 });
 
-app.post("/auth/verify", (req, res) => {
+app.post("/auth/verify", rateLimit, (req, res) => {
   const { token } = req.body || {};
   const entry = db.loginTokens[token];
   if (!entry || entry.expires < Date.now()) {
@@ -152,7 +176,7 @@ app.post("/auth/verify", (req, res) => {
 });
 
 // Circles
-app.get("/circles", requireUser, (req, res) => {
+app.get("/circles", rateLimit, requireUser, (req, res) => {
   const userId = req.userId;
   const circles = Object.values(db.circles).filter(
     (c) => c.ownerId === userId || c.members.some((m) => m.id === userId)
@@ -160,7 +184,7 @@ app.get("/circles", requireUser, (req, res) => {
   res.json({ circles });
 });
 
-app.post("/circles", requireUser, (req, res) => {
+app.post("/circles", rateLimit, requireUser, (req, res) => {
   const { name } = req.body || {};
   if (!name) return res.status(400).json({ error: "name required" });
   const id = nanoid(8);
@@ -178,7 +202,7 @@ app.post("/circles", requireUser, (req, res) => {
   res.status(201).json({ circle });
 });
 
-app.post("/circles/:id/members", requireUser, (req, res) => {
+app.post("/circles/:id/members", rateLimit, requireUser, (req, res) => {
   const circle = db.circles[req.params.id];
   if (!circle) return res.status(404).json({ error: "not found" });
   if (circle.ownerId !== req.userId) return res.status(403).json({ error: "only owner can add" });
@@ -190,7 +214,7 @@ app.post("/circles/:id/members", requireUser, (req, res) => {
   res.status(201).json({ members: circle.members });
 });
 
-app.post("/circles/:id/advance", requireUser, (req, res) => {
+app.post("/circles/:id/advance", rateLimit, requireUser, (req, res) => {
   const circle = db.circles[req.params.id];
   if (!circle) return res.status(404).json({ error: "not found" });
   if (!circle.members.length) return res.status(400).json({ error: "no members" });
@@ -203,7 +227,7 @@ app.post("/circles/:id/advance", requireUser, (req, res) => {
   res.json({ host, nextSwitch: circle.nextSwitch, assignments: circle.assignments });
 });
 
-app.get("/circles/:id/assignments", requireUser, (req, res) => {
+app.get("/circles/:id/assignments", rateLimit, requireUser, (req, res) => {
   const circle = db.circles[req.params.id];
   if (!circle) return res.status(404).json({ error: "not found" });
   res.json({
@@ -214,7 +238,7 @@ app.get("/circles/:id/assignments", requireUser, (req, res) => {
 });
 
 // Upload signing mock. Replace with real GCS signed URL generation using service account key.
-app.post("/uploads/sign", requireUser, (req, res) => {
+app.post("/uploads/sign", rateLimit, requireUser, (req, res) => {
   const { circleId, filename, contentType, size } = req.body || {};
   if (!circleId || !filename) return res.status(400).json({ error: "circleId and filename required" });
   // In production: validate membership; create object path; sign PUT/GET URLs with expiry.

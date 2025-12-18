@@ -56,6 +56,11 @@
     pauseQueue: document.getElementById("pause-queue"),
     resumeQueue: document.getElementById("resume-queue"),
     cancelQueue: document.getElementById("cancel-queue"),
+    clearCompleted: document.getElementById("clear-completed"),
+    consentModal: document.getElementById("consent-modal"),
+    consentAccept: document.getElementById("consent-accept"),
+    consentCancel: document.getElementById("consent-cancel"),
+    fallbackBanner: document.getElementById("fallback-banner"),
     authEmail: document.getElementById("auth-email"),
     authToken: document.getElementById("auth-token"),
     authRequest: document.getElementById("auth-request"),
@@ -309,9 +314,8 @@
         item.status === "uploading" && item.progress
           ? ` — ${Math.round(item.progress)}%`
           : "";
-      li.innerHTML = `<strong>${item.status}</strong> — ${formatBytes(
-        item.size
-      )} <span class="muted tiny">${item.source}${pct}</span>`;
+      const badge = `<span class="badge inline">${item.status}</span>`;
+      li.innerHTML = `${badge} ${formatBytes(item.size)} <span class="muted tiny">${item.source}${pct}</span>`;
       el.uploadQueueList.appendChild(li);
     });
     // prune completed beyond recent 5
@@ -816,6 +820,18 @@
     renderQueue();
   }
 
+  function clearCompleted() {
+    uploadQueue = uploadQueue.filter((u) => u.status !== "done" && u.status !== "failed");
+    renderQueue();
+    setUploadStatus("Cleared completed uploads.");
+  }
+
+  function showConsent() {
+    if (!el.consentModal) return true;
+    el.consentModal.classList.remove("hidden");
+    return false;
+  }
+
   async function uploadWithProgress(url, blob, contentType, queueItem) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -923,6 +939,7 @@
         mock: true,
       });
       renderUploadAttempts();
+      renderQueue();
     } catch (err) {
       console.warn(err);
       setUploadStatus("Could not show notification.", "error");
@@ -1074,6 +1091,7 @@
   let uploadQueue = [];
   let queueState = "idle"; // idle, running, paused
   let currentQueueItem = null;
+  let consentGranted = false;
   const apiConfigKey = "wednesdays-api-base";
   const userIdKey = "wednesdays-user-id";
   const authTokenKey = "wednesdays-auth-token";
@@ -1228,7 +1246,12 @@
       showSupportMessage(
         "In-browser recording is not supported here. Use your camera app and upload/share manually."
       );
+      if (el.fallbackBanner) el.fallbackBanner.classList.remove("hidden");
       return;
+    }
+    if (!consentGranted) {
+      const ok = showConsent();
+      if (!ok) return;
     }
     try {
       lastRecordingBlob = null;
@@ -1366,6 +1389,7 @@
   el.pauseQueue?.addEventListener("click", pauseQueue);
   el.resumeQueue?.addEventListener("click", resumeQueue);
   el.cancelQueue?.addEventListener("click", cancelQueue);
+  el.clearCompleted?.addEventListener("click", clearCompleted);
 
   // Auth listeners
   el.authRequest?.addEventListener("click", requestMagicLink);
@@ -1381,6 +1405,14 @@
   el.flagContent?.addEventListener("click", flagContent);
   el.bitrateInput?.addEventListener("input", updateEstimate);
   el.maxDurationInput?.addEventListener("input", updateEstimate);
+  el.consentAccept?.addEventListener("click", () => {
+    consentGranted = true;
+    if (el.consentModal) el.consentModal.classList.add("hidden");
+  });
+  el.consentCancel?.addEventListener("click", () => {
+    consentGranted = false;
+    if (el.consentModal) el.consentModal.classList.add("hidden");
+  });
 
   function startCountdown() {
     if (countdownTimer) clearInterval(countdownTimer);
@@ -1401,6 +1433,7 @@
     el.pauseQueue.disabled = true;
     el.resumeQueue.disabled = true;
     el.cancelQueue.disabled = true;
+    el.clearCompleted.disabled = true;
   }
   startCountdown();
   if ("serviceWorker" in navigator) {

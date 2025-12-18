@@ -311,6 +311,33 @@ video {
   color: var(--muted);
 }
 
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.modal .modal-content {
+  background: var(--card);
+  border: 1px solid var(--border);
+  padding: 18px;
+  border-radius: 14px;
+  max-width: 360px;
+  width: 90%;
+  box-shadow: var(--shadow);
+}
+
+.badge.inline {
+  display: inline-block;
+  padding: 4px 8px;
+  font-size: 12px;
+  margin-left: 6px;
+}
+
 .progress {
   width: 100%;
   height: 8px;

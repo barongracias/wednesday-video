@@ -20,6 +20,7 @@ test("record fallback: choose file and see upload status", async ({ page }) => {
     buffer: Buffer.from("dummy"),
   });
   await expect(page.getByText("Loaded local file")).toBeVisible();
+  await expect(page.getByText("queued", { exact: false })).toBeVisible();
 });
 
 test("report content button logs a flag", async ({ page }) => {
