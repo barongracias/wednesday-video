@@ -370,6 +370,16 @@ video {
   gap: 10px;
 }
 
+.history-list + .history-list,
+.history-list + .idea-list,
+.idea-list + .history-list {
+  margin-top: 10px;
+}
+
+.button-row + .button-row {
+  margin-top: 8px;
+}
+
 .history-list li, .idea-list li {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);

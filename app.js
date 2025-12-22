@@ -154,10 +154,11 @@
 
   function rotateHost(trigger = "manual", pivotTs = Date.now()) {
     if (!state.friends.length) return;
+    const prevHost = state.friends[state.hostIndex] || "Host";
     state.hostIndex = (state.hostIndex + 1) % state.friends.length;
     state.history = state.history || [];
     state.history.unshift({
-      name: state.friends[state.hostIndex],
+      name: prevHost,
       when: pivotTs,
       trigger,
     });
@@ -673,6 +674,10 @@
       if (data.mock) {
         setUploadStatus("Using mock signed URL; no real upload performed.");
         setProgress(100);
+        if (fromQueueItem) {
+          fromQueueItem.status = "done";
+          fromQueueItem.progress = 100;
+        }
         uploadAttempts.unshift({
           status: "mock signed",
           size: lastRecordingBlob.size,
@@ -688,6 +693,10 @@
       if (data.uploadUrl.includes("mock")) {
         setUploadStatus("Using mock signed URL; no real upload performed.");
         setProgress(100);
+        if (fromQueueItem) {
+          fromQueueItem.status = "done";
+          fromQueueItem.progress = 100;
+        }
         uploadAttempts.unshift({
           status: "mock signed",
           size: lastRecordingBlob.size,
@@ -1445,12 +1454,12 @@
     el.uploadProgress.style.width = `${Math.min(Math.max(percent, 0), 100)}%`;
   }
 
-  function updateEstimate() {
+  function updateEstimate(opts = {}) {
     const bitrate = clamp(Number(el.bitrateInput?.value) || 1200, 200, MAX_BITRATE_KBPS);
     const seconds = clamp(Number(el.maxDurationInput?.value) || MAX_DURATION_SEC, 30, 300);
     const bytes = (bitrate * 1000 * seconds) / 8 + 128000 * seconds / 8; // video + audio rough
     if (el.estSize) el.estSize.textContent = `Est. size: ${formatBytes(bytes)}`;
-    showToast("Bitrate/duration updated; estimate refreshed.");
+    if (!opts.silent) showToast("Bitrate/duration updated; estimate refreshed.");
   }
 
   function showToast(text) {
@@ -1871,7 +1880,7 @@
   setBackendStatus("Offline");
   hydrateSessionUI();
   setProgress(0);
-  updateEstimate();
+  updateEstimate({ silent: true });
   runChecks({ silent: true });
   acceptInviteFromUrl();
   if (el.pauseQueue) {
