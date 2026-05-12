@@ -11,9 +11,11 @@ import {
   getState,
   setState,
   getFlags,
+  pushFlag,
   getUploadQueue,
   setUploadQueue,
   getUploadAttempts,
+  pushUploadAttempt,
   getServerUploads,
   getServerFlags,
   getInvites,
@@ -60,6 +62,7 @@ import {
   clearCompleted as doClearCompleted,
   cancelQueueItem,
   requestSignedUpload,
+  validateBlob,
   pingBackend,
   requestMagicLink,
   verifyMagicLink,
@@ -393,12 +396,10 @@ function stopRecording() {
 function useExistingUpload() {
   const file = el.fileInput?.files?.[0];
   if (!file) { showSupportMessage("Pick a video file first."); return; }
-  import("./upload.js").then(({ validateBlob }) => {
-    validateBlob(file, el.maxDurationInput).then((ok) => {
-      if (!ok) return;
-      useRecordedBlob(file, "upload");
-      showSupportMessage("Loaded local file. You can upload/share/download now.");
-    });
+  validateBlob(file, el.maxDurationInput).then((ok) => {
+    if (!ok) return;
+    useRecordedBlob(file, "upload");
+    showSupportMessage("Loaded local file. You can upload/share/download now.");
   });
 }
 
@@ -488,11 +489,9 @@ function notifyHost() {
   const body = `It's your turn. Record a 60–90s recap before ${formatDate(state.nextSwitch || nextWednesday(Date.now()))}.`;
   try {
     new Notification(`Wednesday's: ${host}`, { body });
-    import("./state.js").then(({ pushUploadAttempt }) => {
-      pushUploadAttempt({ status: `notified ${host}`, size: 0, when: Date.now(), mock: true });
-      renderUploadAttempts();
-      renderQueue();
-    });
+    pushUploadAttempt({ status: `notified ${host}`, size: 0, when: Date.now(), mock: true });
+    renderUploadAttempts();
+    renderQueue();
   } catch (err) {
     console.warn(err);
     setUploadStatus("Could not show notification.", "error");
@@ -528,20 +527,18 @@ function flagContent() {
   const reason = prompt("Describe the issue (e.g., inappropriate, consent, other):");
   if (!reason) return;
   const note = prompt("Any extra context? (optional)") || "";
-  import("./state.js").then(({ pushFlag, getFlags }) => {
-    pushFlag({ reason, note, when: Date.now() });
-    renderFlags();
-    setUploadStatus("Flag saved locally. Add server moderation before wider use.");
-    const base = el.apiBase?.value?.trim();
-    const session = getSession();
-    if (base && session?.userId) {
-      fetch(`${base.replace(/\/$/, "")}/flags`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-user-id": session.userId },
-        body: JSON.stringify({ reason, note, circleId: getCircleId() || "local" }),
-      }).catch((err) => console.warn("Flag API failed", err));
-    }
-  });
+  pushFlag({ reason, note, when: Date.now() });
+  renderFlags();
+  setUploadStatus("Flag saved locally. Add server moderation before wider use.");
+  const base = el.apiBase?.value?.trim();
+  const session = getSession();
+  if (base && session?.userId) {
+    fetch(`${base.replace(/\/$/, "")}/flags`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-user-id": session.userId },
+      body: JSON.stringify({ reason, note, circleId: getCircleId() || "local" }),
+    }).catch((err) => console.warn("Flag API failed", err));
+  }
 }
 
 // ─── Device checks ────────────────────────────────────────────────────────────

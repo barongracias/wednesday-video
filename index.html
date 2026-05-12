@@ -4,8 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Wednesday's – rotating weekly video drops</title>
-  <meta name="theme-color" content="#060914">
+  <meta name="description" content="A simple weekly rotation for your circle. Each Wednesday someone records a quick recap of their week.">
+  <meta name="theme-color" content="#0a0a0f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Wednesday's">
   <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon.svg">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -89,7 +94,7 @@
             <button id="use-upload" class="ghost">Use existing video</button>
           </div>
           <div class="button-row">
-            <a id="download-link" class="ghost" href="#" download="wednesdays.webm" role="button">Download</a>
+            <a id="download-link" class="ghost" href="#" download="wednesdays.webm" role="button" aria-label="Download recording">Download</a>
             <button id="share-recording" class="ghost" disabled>Share</button>
           </div>
           <p class="muted tiny">Safari 14.3+/Chrome required for in-browser capture. If unsupported, use your phone's camera app and upload later.</p>

@@ -455,7 +455,6 @@ app.post("/invites/:token/accept", rateLimit, (req, res) => {
     circle.members.push({ id: user.id, email: user.email, name: user.email.split("@")[0] });
   }
   db.invites.splice(invIdx, 1);
-  markDirty();
   if (sqliteDb) {
     sqliteDb.prepare("INSERT OR REPLACE INTO users (id,email) VALUES (?,?)").run(user.id, user.email);
     sqliteDb
