@@ -275,12 +275,14 @@
 
   function renderMockUploads() {
     el.mockUploadList.innerHTML = "";
+    // lastRecordingBlob is declared later in the IIFE; guard with typeof check
+    const hasBlob = typeof lastRecordingBlob !== "undefined" && lastRecordingBlob !== null;
     if (!state.mockUploads || !state.mockUploads.length) {
       const li = document.createElement("li");
       li.className = "muted tiny";
       li.textContent = "No mock uploads yet. Generate a mock recording, then save it.";
       el.mockUploadList.appendChild(li);
-      el.mockUpload.disabled = !lastRecordingBlob;
+      el.mockUpload.disabled = !hasBlob;
       return;
     }
     state.mockUploads.slice(0, 10).forEach((item) => {
@@ -292,7 +294,7 @@
       )})</span>`;
       el.mockUploadList.appendChild(li);
     });
-    el.mockUpload.disabled = !lastRecordingBlob;
+    el.mockUpload.disabled = !hasBlob;
   }
 
   function renderUploadAttempts() {
@@ -505,7 +507,7 @@
       },
     ];
     lastRecordingBlob = null;
-    el.mockUpload.disabled = true;
+    if (el.mockUpload) el.mockUpload.disabled = true;
     renderAll();
     setDemoStatus("Demo data loaded");
     showSupportMessage("Demo circle loaded. Rotate or record against the sample set.");

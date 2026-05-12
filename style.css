@@ -37,7 +37,7 @@
 body {
   margin: 0;
   padding: 0;
-  font-family: "Space Grotesk", "SF Pro Display", "Avenir Next", "Inter", system-ui, -apple-system, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Space Grotesk", "SF Pro Display", "Avenir Next", "Inter", system-ui, sans-serif;
   background: radial-gradient(circle at 20% 20%, rgba(127, 255, 212, 0.08), transparent 30%),
               radial-gradient(circle at 80% 0%, rgba(122, 185, 255, 0.08), transparent 25%),
               linear-gradient(135deg, var(--bg), var(--bg2));
@@ -51,7 +51,15 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  background: rgba(6, 9, 20, 0.7);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  padding: 10px 24px;
+  margin: -24px -24px 16px;
 }
 
 .logo {
@@ -68,8 +76,10 @@ body {
 }
 
 .hero {
-  background: linear-gradient(120deg, rgba(127, 255, 212, 0.08), rgba(122, 185, 255, 0.08));
-  border: 1px solid var(--border);
+  background: linear-gradient(135deg, rgba(127, 255, 212, 0.08), rgba(122, 185, 255, 0.06));
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 20px;
   padding: 28px;
   display: grid;
@@ -112,15 +122,17 @@ h2, h3 {
 }
 
 .card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
   padding: 18px 18px 20px;
-  box-shadow: var(--shadow);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .card.soft {
-  background: var(--card-soft);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .card-head {
@@ -185,14 +197,15 @@ h2, h3 {
 button, .ghost[role="button"] {
   appearance: none;
   border: none;
-  border-radius: 12px;
-  padding: 12px 14px;
-  font-weight: 700;
-  background: linear-gradient(120deg, var(--accent), var(--accent-2));
+  border-radius: 14px;
+  padding: 10px 16px;
+  font-weight: 600;
+  background: linear-gradient(135deg, rgba(127, 255, 212, 0.9), rgba(122, 185, 255, 0.9));
   color: #041016;
   cursor: pointer;
-  transition: transform 150ms ease, box-shadow 150ms ease;
+  transition: all 120ms ease;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(8px);
   text-decoration: none;
   text-align: center;
 }
@@ -214,9 +227,11 @@ button:focus-visible,
 }
 
 button.ghost, .ghost {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text);
-  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  backdrop-filter: blur(8px);
   box-shadow: none;
 }
 
@@ -275,8 +290,9 @@ button.danger.ghost {
 input {
   padding: 12px;
   border-radius: 12px;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(8px);
   color: var(--text);
   font-size: 16px;
 }
@@ -410,8 +426,10 @@ video {
 }
 
 .modal .modal-content {
-  background: var(--card);
-  border: 1px solid var(--border);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  background: rgba(15, 18, 30, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   padding: 18px;
   border-radius: 14px;
   max-width: 360px;
@@ -458,7 +476,9 @@ video {
   bottom: 90px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  background: rgba(15, 18, 30, 0.9);
   color: #fff;
   padding: 10px 14px;
   border-radius: 12px;
@@ -477,8 +497,10 @@ video {
   gap: 10px;
   padding: 8px 12px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  background: rgba(10, 12, 24, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   z-index: 999;
 }
 

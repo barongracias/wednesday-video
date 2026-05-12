@@ -467,7 +467,10 @@ app.post("/invites/:token/accept", rateLimit, (req, res) => {
   res.json({ userId: user.id, circleId: circle.id });
 });
 
-// Upload signing mock. Replace with real GCS signed URL generation using service account key.
+// MOCK: Signed URL generation. When SERVICE_ACCOUNT_KEY_B64 is set, real GCS v4 signed URLs are
+// issued. Without it, signUrls() throws and the catch block below returns a mock URL that
+// contains "mock" in the query string — the frontend detects this and skips the actual PUT.
+// Set SERVICE_ACCOUNT_KEY_B64 + GCS_BUCKET + GCP_PROJECT_ID for real uploads.
 app.post("/uploads/sign", rateLimit, requireUser, (req, res) => {
   const { circleId, filename, contentType, size, duration } = req.body || {};
   if (!circleId || !filename) return res.status(400).json({ error: "circleId and filename required" });
